@@ -27,7 +27,13 @@ eval: sample from logits and take next token, and
 continue
 
 """
-
+class Utils():
+    @staticmethod
+    def stable_softmax(x: torch.Tensor) -> torch.Tensor:
+        max_logit = torch.max(x, dim=-1, keepdim=True).values
+        x = torch.exp(x - max_logit) #b, n_heads, seq, seq
+        sum = torch.sum(x, dim=-1, keepdim=True)
+        return x / sum
 
 class EnDecoder(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -49,7 +55,8 @@ class EnDecoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.attention(x, True)
         x = self.ln(x)
-        return self.mlp(x)
+        x = self.mlp(x)
+        return self.ln(x)
 
 class HomeReLU(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -149,12 +156,6 @@ class CausalSelfAttention(nn.Module):
         cols = torch.arange(n).view(-1, n)
         return rows < cols
 
-    def _stable_softmax(self, x: torch.Tensor) -> torch.Tensor:
-        max_logit = torch.max(x, dim=-1, keepdim=True).values
-        x = torch.exp(x - max_logit) #b, n_heads, seq, seq
-        sum = torch.sum(x, dim=-1, keepdim=True)
-        return x / sum
-
 
     def forward(self, x: torch.Tensor, do_mask: bool) -> torch.Tensor:
         b, seq, tok = x.shape
@@ -172,7 +173,7 @@ class CausalSelfAttention(nn.Module):
             mask = self._upper_triangular(seq)
             attention = attention.masked_fill(mask, float("-inf"))
 
-        attention_softmax = self._stable_softmax(attention) #b, n_heads, seq, seq
+        attention_softmax = Utils.stable_softmax(attention) #b, n_heads, seq, seq
 
         result = torch.matmul(attention_softmax, v) #b, n_heads, seq, head_dim
         result = result.transpose(1, 2).reshape(b, seq, self.token_dim)
@@ -213,6 +214,7 @@ class Transformer(nn.Module):
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        print(x.shape)
         batch_size, seq_len = x.shape
 
         input_tensor = self.tokenEmbeddings[x]
@@ -228,22 +230,26 @@ class Transformer(nn.Module):
 
         print(x.shape)
         print(y.shape)
-        return y
+
+        #now, need to convert the output, back into tokens
+        output_token_logits = y @ self.tokenEmbeddings.T #b, seq, vocab_size
+        output_token_probs = Utils.stable_softmax(output_token_logits)
+        return output_token_probs
         
 
         
 
-torch.manual_seed(157)
-params = {
-    "vocab_size": 6,
-    "token_dim": 4,
-    "endecoder_layers": 2
-}
-t = Transformer(**params)
-input = torch.tensor([
-    [0, 1],
-    [1, 2],
-    [0, 3],
-])
+# torch.manual_seed(157)
+# params = {
+#     "vocab_size": 6,
+#     "token_dim": 4,
+#     "endecoder_layers": 2
+# }
+# t = Transformer(**params)
+# input = torch.tensor([
+#     [0, 1],
+#     [1, 2],
+#     [0, 3],
+# ])
 
-print(t(input))
+# print(t(input))

@@ -2,9 +2,10 @@ from abc import ABC
 from collections import defaultdict
 import heapq
 import pickle
+import os
 
 class Tokenizer(ABC):
-    def __init__(self, corpus_file_path: str) -> None:
+    def __init__(self, corpus_file_path: str, tokenizer_path: str, vocab_size: int = 1000) -> None:
         super().__init__()
         self.file_path = corpus_file_path
         self.corpus = ""
@@ -14,6 +15,18 @@ class Tokenizer(ABC):
         self.tokenMapInt = {}
         self.tokenPositions = defaultdict(lambda: [])
         self.freqCounter = defaultdict(lambda: 0)
+
+        self.vocabSize = vocab_size
+
+        if os.path.exists(tokenizer_path):
+            with open(tokenizer_path, "rb") as f:
+                self.tokenMap = pickle.load(f)
+                f.close()
+        else:
+            self.create_tokens(self.vocabSize)
+            self.store_tokens(tokenizer_path)
+
+
 
     def _read_corpus(self):
         with open(self.file_path, "r") as f:
@@ -94,9 +107,13 @@ class Tokenizer(ABC):
             pickle.dump(self.tokenMap, f)
         f.close()
 
-    def tokenize(self, input: str) -> tuple[list[str], list[int]]:
+    def tokenize(self, inputs: list[str]) -> list[tuple[list[str], list[int]]]:
+        return [self.tokenize_single_input(input) for input in inputs]
+
+    def tokenize_single_input(self, input: str) -> tuple[list[str], list[int]]:
         i = 0
         n = len(input)
+        print(f"trying to tokenize: #{input}#")
         tokens = []
         tokenInts = []
         while i < n:
@@ -115,23 +132,25 @@ class Tokenizer(ABC):
             if len(token) > 0:
                 tokenInts.append(self.tokenMap[token])
                 tokens.append(token)
-            i = end
+                i = end
+            else:
+                print(f"got no tokens starting from {i}")
+                i += 1
 
         return tokens, tokenInts
 
-
-tokenizer = Tokenizer("src/resources/input.txt")
-vocabSize = 100
-tokenizer.create_tokens(vocabSize)
-tokenizer_path = f"src/resources/tokenMap_{vocabSize}.pkl"
-tokenizer.store_tokens(tokenizer_path)
-with open(tokenizer_path, "rb") as f:
-    tmap = pickle.load(f)
+# vocabSize = 100
+# tokenizer_path = f"src/resources/tokenMap_{vocabSize}.pkl"
+# tokenizer = Tokenizer("src/resources/input.txt", tokenizer_path, vocab_size=vocabSize)
+# tokenizer.create_tokens(vocabSize)
+# tokenizer.store_tokens(tokenizer_path)
+# with open(tokenizer_path, "rb") as f:
+#     tmap = pickle.load(f)
 
 # for k, v in tmap.items():
 #     print(f"#{k}#: -{v}-")
 
-s = "thereit is the best of the best"
-t, ti = tokenizer.tokenize(s)
-print(t)
-print(ti)
+# s = "thereit is the best of the best"
+# t, ti = tokenizer.tokenize(s)
+# print(t)
+# print(ti)
