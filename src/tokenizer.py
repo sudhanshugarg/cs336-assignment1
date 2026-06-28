@@ -5,7 +5,11 @@ import pickle
 import os
 
 class Tokenizer(ABC):
-    def __init__(self, corpus_file_path: str, tokenizer_path: str, vocab_size: int = 1000) -> None:
+    def __init__(self, 
+                 corpus_file_path: str, 
+                 tokenizer_path: str, 
+                 vocab_size: int = 1000, 
+                 overwrite: bool = False) -> None:
         super().__init__()
         self.file_path = corpus_file_path
         self.corpus = ""
@@ -18,15 +22,13 @@ class Tokenizer(ABC):
 
         self.vocabSize = vocab_size
 
-        if os.path.exists(tokenizer_path):
+        if not overwrite and os.path.exists(tokenizer_path):
             with open(tokenizer_path, "rb") as f:
                 self.tokenMap = pickle.load(f)
                 f.close()
         else:
             self.create_tokens(self.vocabSize)
             self.store_tokens(tokenizer_path)
-
-
 
     def _read_corpus(self):
         with open(self.file_path, "r") as f:
@@ -113,7 +115,7 @@ class Tokenizer(ABC):
     def tokenize_single_input(self, input: str) -> tuple[list[str], list[int]]:
         i = 0
         n = len(input)
-        print(f"trying to tokenize: #{input}#")
+        # print(f"trying to tokenize: #{input}, current tokens = {len(self.tokenMap)}#")
         tokens = []
         tokenInts = []
         while i < n:

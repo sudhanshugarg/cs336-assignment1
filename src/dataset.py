@@ -1,15 +1,23 @@
+import torch
 from torch.utils.data import Dataset
+from tokenizer import Tokenizer
 
 class TextFileReader(Dataset):
-    def __init__(self, path: str, seq_length: int = 32):
-        with open(path, "r") as f:
-            self.data = "whats up old man, how goes it these days, what are you up to"
-            f.close()
+    def __init__(self, path: str, tokenizer: Tokenizer, seq_length: int = 32):
         self.seq_length = seq_length
-        self.n = len(self.data)
+        self.tokenizer = tokenizer
 
-    def __getitem__(self, i: int) -> tuple[str, str]:
-        return self.data[i:i+self.seq_length], self.data[i+1:i+self.seq_length+1]
+        with open(path, "r") as f:
+            self.raw_data = f.read()
+            self.tokens, self.token_ints = self.tokenizer.tokenize([self.raw_data])[0]
+            f.close()
+        self.n = len(self.token_ints)
+
+    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
+
+        res = torch.tensor(self.token_ints[i:i+self.seq_length]), torch.tensor(self.token_ints[i+1:i+self.seq_length+1])
+        # print(f"{i}: {res}")
+        return res
 
     def __len__(self) -> int:
         return self.n - self.seq_length

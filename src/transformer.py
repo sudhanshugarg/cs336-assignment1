@@ -213,8 +213,7 @@ class Transformer(nn.Module):
             self.layers.append(EnDecoder(**kwargs))
 
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        print(x.shape)
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         batch_size, seq_len = x.shape
 
         input_tensor = self.tokenEmbeddings[x]
@@ -228,13 +227,13 @@ class Transformer(nn.Module):
         for i in range(self.endecoder_layers):
             y = self.layers[i](y)
 
-        print(x.shape)
-        print(y.shape)
+        # print(input_tensor.shape)
 
         #now, need to convert the output, back into tokens
         output_token_logits = y @ self.tokenEmbeddings.T #b, seq, vocab_size
         output_token_probs = Utils.stable_softmax(output_token_logits)
-        return output_token_probs
+
+        return output_token_logits, output_token_probs
         
 
         

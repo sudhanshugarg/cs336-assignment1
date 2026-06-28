@@ -14,17 +14,22 @@ def get_tensor(tokenizer: Tokenizer, x: list[str]) -> torch.Tensor:
     return torch.tensor(token_ints)
 
 
-def train_step(model: nn.Module, x: torch.Tensor, y: torch.Tensor):
+def train_step(it: int, model: nn.Module, x: torch.Tensor, y: torch.Tensor):
     model.train()
     logits, probs = model(x)
-    losses = logits[y] #cross entropy loss
-    losses = torch.mean(-torch.log(losses))
+    #each of the 3 indexes are broadcast into y.shape
+    losses = probs[torch.arange(logits.shape[0])[:, None], torch.arange(logits.shape[1])[None, :], y]
+    # print(losses)
+    loss = losses.mean()
+    if it % 10 == 0:
+        print(f"{it}: loss = {loss.item()}")
+    loss.backward()
 
 
 def train():
     params = {
-        "vocab_size": 100,
-        "token_dim": 4,
+        "vocab_size": 1000,
+        "token_dim": 16,
         "endecoder_layers": 2
     }
     torch.manual_seed(157)
@@ -32,19 +37,18 @@ def train():
     file_name = "input.txt"
     file_path = f"src/resources/{file_name}"
     tokenizer_path = f"src/resources/tokenizer_{file_name}_{params['vocab_size']}.pkl"
-    tokenizer = Tokenizer(file_path, tokenizer_path)
+    tokenizer = Tokenizer(file_path, tokenizer_path, vocab_size=params["vocab_size"], overwrite=True)
     # tokenizer.tokenize()
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
-    optimizer.zero_grad(set_to_none=True)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
-    seq_length = 6
-    dataset = TextFileReader(file_path, seq_length=seq_length)
-    dataloader = DataLoader(dataset=dataset, batch_size=3, shuffle=False)
+    seq_length = 32
+    dataset = TextFileReader(file_path, seq_length=seq_length, tokenizer=tokenizer)
+    dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True)
 
-    max_steps = 1
+    max_steps = 350
     data_iter = iter(dataloader)
-    for _ in range(max_steps):
+    for i in range(max_steps):
         try:
             batch_x, batch_y = next(data_iter)    
         except StopIteration as e:
@@ -52,10 +56,11 @@ def train():
             data_iter = iter(dataloader)
             batch_x, batch_y = next(data_iter)
 
-
-        x = get_tensor(tokenizer, batch_x)
-        y = get_tensor(tokenizer, batch_y)
-        train_step(model, x, y)
+        # x = get_tensor(tokenizer, batch_x)
+        # y = get_tensor(tokenizer, batch_y)
+        optimizer.zero_grad(set_to_none=True)
+        train_step(i, model, batch_x, batch_y)
+        optimizer.step()
 
 
 train()
