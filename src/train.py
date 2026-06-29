@@ -5,6 +5,20 @@ from transformer import Transformer
 from tokenizer import Tokenizer
 from dataset import TextFileReader
 import wandb
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import os
+
+PST = ZoneInfo("America/Los_Angeles")
+params = {
+    "vocab_size": 1000,
+    "token_dim": 16,
+    "endecoder_layers": 2,
+    "n_heads": 2,
+    "mlp_hidden_layer_dim": 4,
+    "mlp_hidden_layers": 2
+}
+seq_length = 32
 
 
 def get_tensor(tokenizer: Tokenizer, x: list[str]) -> torch.Tensor:
@@ -33,15 +47,11 @@ def train_step(it: int, model: nn.Module, x: torch.Tensor, y: torch.Tensor):
 
 
 def train():
-    params = {
-        "vocab_size": 1000,
-        "token_dim": 16,
-        "endecoder_layers": 2,
-        "n_heads": 2,
-        "mlp_hidden_layer_dim": 4,
-        "mlp_hidden_layers": 2
-    }
+
     wandb.init(project="sudgarg", name="xformer_scratch")
+    train_start = datetime.now(PST)
+    train_start_str = train_start.strftime("%s")
+
     torch.manual_seed(157)
     model = Transformer(**params)
     file_name = "input.txt"
@@ -52,7 +62,6 @@ def train():
 
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
 
-    seq_length = 32
     dataset = TextFileReader(file_path, seq_length=seq_length, tokenizer=tokenizer)
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True)
 
@@ -72,6 +81,64 @@ def train():
         train_step(i, model, batch_x, batch_y)
         optimizer.step()
 
+    
+    model_path = f"src/resources/{train_start_str}-checkpoint.pt"
+    torch.save(model.state_dict(), model_path)
 
-train()
+def bucketize(query_1d: torch.Tensor, boundaries_2d: torch.Tensor) -> torch.Tensor:
+    # query is of size bx1, boundaries of size b x vocab
+    # result will be bx1, one index from boundaries for each
+    m = (query_1d <= boundaries_2d) * 1 #b x vocab
+    return boundaries_2d.shape[-1] - torch.sum(m, dim=-1)
 
+
+def sample_probs(probs: torch.Tensor) -> torch.Tensor:
+    #probs.shape = [b, seq_length, vocab_size]
+    #b = 1
+    cumprobs = torch.cumsum(probs[:, -1], dim=-1)
+    # print(probs[:, -1].shape)
+    # print(cumprobs.shape)
+    return bucketize(torch.rand(probs.shape[0]), cumprobs)
+
+def eval(model_path: str):
+    torch.manual_seed(157)
+    if not os.path.exists(model_path):
+        raise ValueError(f"{model_path} not found")
+
+    checkpoint = torch.load(model_path)
+
+
+    model = Transformer(**params)
+    model.load_state_dict(checkpoint)
+    model.eval()
+
+    #start string
+    #tokenize it
+    #get predictions
+    #enter the same string again
+    #get next predictions
+    #continue forever
+    start = "Julius how goes it these days. I'm good cleopatra, nothhing new to report"
+    tokenizer_path = f"src/resources/tokenizer_input.txt_{params['vocab_size']}.pkl"
+    tokenizer = Tokenizer(corpus_file_path="", tokenizer_path=tokenizer_path, vocab_size=params["vocab_size"])
+
+    max_length = 50
+    tokens, token_ints = tokenizer.tokenize([start])[0]
+
+    print(start, end="")
+    with torch.no_grad():
+        for i in range(max_length):
+            x = torch.tensor(token_ints[-seq_length:]).unsqueeze(dim=0)
+            # print(x.shape)
+            # break
+            _, probs = model(x)
+            # print(probs.shape)
+            #need to sample from these probabilities
+            batch_next_token_ints = sample_probs(probs)
+            next_token_int = int(batch_next_token_ints[0].item())
+            token_ints.append(next_token_int)
+            print(tokenizer.tokenMapInt[next_token_int], end="")
+    print()
+
+# train()
+eval(model_path="src/resources/1782743727-checkpoint.pt")

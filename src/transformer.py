@@ -6,14 +6,16 @@ import torch.nn.init as init
 import math
 
 """
-input is [batch, seq_length] -> of integers (tokenIds) [TODO fix the current implementation]
+input is [batch, seq_length] -> of integers (tokenIds) [TODO fix the current implementation of tokenizer]
+
 1. convert tokenIds -> embeddings -> [batch, seq_length, token_dim] (DONE)
 2. pre layer_norm (DONE)
+3. TODO padding when seq_length < context_length
 
 ENCODER/DECODER BLOCK X 4
-2.1 positional encoding (TODO)
-3. causalselfattention (multi headed self attention) [DONE]
-4. layer norm [TODO] scale and shift params
+2.1 positional encoding - cosine/rope (TODO)
+3. causalselfattention (multi headed self attention) [TODO] masking and padding
+4. layer norm [DONE] scale and shift params
 5. mlp [DONE]
 6. MOE [TODO]
 7. layer norm [DONE] scale and shift params

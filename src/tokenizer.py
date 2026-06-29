@@ -11,29 +11,36 @@ class Tokenizer(ABC):
                  vocab_size: int = 1000, 
                  overwrite: bool = False) -> None:
         super().__init__()
+        self.tokenMap = {}
+        self.tokenMapInt = {}
+
+        if not overwrite and os.path.exists(tokenizer_path):
+            with open(tokenizer_path, "rb") as f:
+                tokenData = pickle.load(f)
+                self.tokenMap = tokenData["tokenMap"]
+                self.tokenMapInt = tokenData["tokenMapInt"]
+            return
+
+        if not os.path.exists(corpus_file_path):
+            raise ValueError(f"input file {corpus_file_path} does not exist")
+
         self.file_path = corpus_file_path
         self.corpus = ""
         self._read_corpus()
         self.N = len(self.corpus)
-        self.tokenMap = {}
-        self.tokenMapInt = {}
         self.tokenPositions = defaultdict(lambda: [])
         self.freqCounter = defaultdict(lambda: 0)
-
         self.vocabSize = vocab_size
 
-        if not overwrite and os.path.exists(tokenizer_path):
-            with open(tokenizer_path, "rb") as f:
-                self.tokenMap = pickle.load(f)
-                f.close()
-        else:
-            self.create_tokens(self.vocabSize)
-            self.store_tokens(tokenizer_path)
+        self.create_tokens(self.vocabSize)
+        self.store_tokens(tokenizer_path)
+
+
+
 
     def _read_corpus(self):
         with open(self.file_path, "r") as f:
             self.corpus = f.read(-1)
-        f.close()
         print(f"corpus length = {len(self.corpus)}")
         
 
@@ -106,8 +113,11 @@ class Tokenizer(ABC):
 
     def store_tokens(self, tokenizer_path: str):
         with open(tokenizer_path, "wb") as f:
-            pickle.dump(self.tokenMap, f)
-        f.close()
+            tokenData = {
+                "tokenMap": self.tokenMap,
+                "tokenMapInt": self.tokenMapInt
+            }
+            pickle.dump(tokenData, f)
 
     def tokenize(self, inputs: list[str]) -> list[tuple[list[str], list[int]]]:
         return [self.tokenize_single_input(input) for input in inputs]
