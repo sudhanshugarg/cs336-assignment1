@@ -141,5 +141,5 @@ def eval(model_path: str):
             print(tokenizer.tokenMapInt[next_token_int], end="")
     print()
 
-ckpt_path = train(10000)
+ckpt_path = train(3000)
 eval(model_path=ckpt_path)

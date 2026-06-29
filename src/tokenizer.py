@@ -13,12 +13,14 @@ class Tokenizer(ABC):
         super().__init__()
         self.tokenMap = {}
         self.tokenMapInt = {}
+        self.tokenPriority = {}
 
         if not overwrite and os.path.exists(tokenizer_path):
             with open(tokenizer_path, "rb") as f:
                 tokenData = pickle.load(f)
                 self.tokenMap = tokenData["tokenMap"]
                 self.tokenMapInt = tokenData["tokenMapInt"]
+                self.tokenPriority = tokenData["tokenPriority"]
             return
 
         if not os.path.exists(corpus_file_path):
@@ -35,6 +37,7 @@ class Tokenizer(ABC):
         self.create_tokens(self.vocabSize)
         self.store_tokens(tokenizer_path)
 
+
     def _read_corpus(self):
         with open(self.file_path, "r") as f:
             self.corpus = f.read(-1)
@@ -47,10 +50,12 @@ class Tokenizer(ABC):
         # initializing tokens
         chars = list(self.corpus)
         unique_chars = set(chars)
+        self.unique_chars = unique_chars
         i = 0
         for c in unique_chars:
             self.tokenMap[c] = i
             self.tokenMapInt[i] = c
+            self.tokenPriority[c] = vocab_size #lowest priority for single chars
             i += 1
 
         for i in range(len(self.corpus)):
@@ -70,6 +75,7 @@ class Tokenizer(ABC):
             heapq.heappush(h, (-value, key)) # max heap
     
         #start adding tokens
+        priority = 1
         while len(h) > 0 and len(self.tokenMap) < vocab_size:
             #do your thang!
             freq, token = heapq.heappop(h)
@@ -78,6 +84,8 @@ class Tokenizer(ABC):
             p = len(self.tokenMap)
             self.tokenMap[token] = p
             self.tokenMapInt[p] = token
+            self.tokenPriority[token] = priority
+            priority += 1
             #now, i need to find all the positions for this token
             positions = self.tokenPositions[token]
             # print(f"for token #{token}#, no. of positions = {len(positions)}, first 5 = {positions[0:5]}")
@@ -108,16 +116,20 @@ class Tokenizer(ABC):
             for newToken in newTokensGenerated:
                 heapq.heappush(h, (-self.freqCounter[newToken], newToken))
 
+
     def store_tokens(self, tokenizer_path: str):
         with open(tokenizer_path, "wb") as f:
             tokenData = {
                 "tokenMap": self.tokenMap,
-                "tokenMapInt": self.tokenMapInt
+                "tokenMapInt": self.tokenMapInt,
+                "tokenPriority": self.tokenPriority
             }
             pickle.dump(tokenData, f)
 
+
     def tokenize(self, inputs: list[str]) -> list[tuple[list[str], list[int]]]:
         return [self.tokenize_single_input(input) for input in inputs]
+
 
     def tokenize_single_input(self, input: str) -> tuple[list[str], list[int]]:
         i = 0
@@ -134,13 +146,13 @@ class Tokenizer(ABC):
                 tokenCandidate = input[i:j]
                 if input[i:j] not in self.tokenMap:
                     break
-                heapq.heappush(tokenCandidateInts, (self.tokenMap[tokenCandidate]))
+                heapq.heappush(tokenCandidateInts, (self.tokenPriority[tokenCandidate], self.tokenMap[tokenCandidate]))
                 end = j
             
             # print(f"got token {token}")
             if len(tokenCandidateInts) > 0:
                 # take the token with highest freq (i.e. lowest int value)
-                tokenInt = heapq.heappop(tokenCandidateInts)
+                _, tokenInt = heapq.heappop(tokenCandidateInts)
                 tokenInts.append(tokenInt)
                 tokens.append(self.tokenMapInt[tokenInt])
                 i = end
@@ -153,8 +165,6 @@ class Tokenizer(ABC):
 # vocabSize = 100
 # tokenizer_path = f"src/resources/tokenMap_{vocabSize}.pkl"
 # tokenizer = Tokenizer("src/resources/input.txt", tokenizer_path, vocab_size=vocabSize)
-# tokenizer.create_tokens(vocabSize)
-# tokenizer.store_tokens(tokenizer_path)
 # with open(tokenizer_path, "rb") as f:
 #     tmap = pickle.load(f)
 
@@ -162,6 +172,6 @@ class Tokenizer(ABC):
 #     print(f"#{k}#: -{v}-")
 
 # s = "thereit is the best of the best"
-# t, ti = tokenizer.tokenize(s)
+# t, ti = tokenizer.tokenize_single_input(s)
 # print(t)
 # print(ti)
