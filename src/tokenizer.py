@@ -35,9 +35,6 @@ class Tokenizer(ABC):
         self.create_tokens(self.vocabSize)
         self.store_tokens(tokenizer_path)
 
-
-
-
     def _read_corpus(self):
         with open(self.file_path, "r") as f:
             self.corpus = f.read(-1)
@@ -131,19 +128,21 @@ class Tokenizer(ABC):
         while i < n:
             end = i
             j = i
+            tokenCandidateInts = []
             while j < n:
                 j += 1
+                tokenCandidate = input[i:j]
                 if input[i:j] not in self.tokenMap:
                     break
+                heapq.heappush(tokenCandidateInts, (self.tokenMap[tokenCandidate]))
                 end = j
-
-            # print(f"i={i},end={end}")
-            token = input[i:end]
             
             # print(f"got token {token}")
-            if len(token) > 0:
-                tokenInts.append(self.tokenMap[token])
-                tokens.append(token)
+            if len(tokenCandidateInts) > 0:
+                # take the token with highest freq (i.e. lowest int value)
+                tokenInt = heapq.heappop(tokenCandidateInts)
+                tokenInts.append(tokenInt)
+                tokens.append(self.tokenMapInt[tokenInt])
                 i = end
             else:
                 print(f"got no tokens starting from {i}")

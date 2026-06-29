@@ -46,7 +46,7 @@ def train_step(it: int, model: nn.Module, x: torch.Tensor, y: torch.Tensor):
     loss.backward()
 
 
-def train():
+def train(max_steps: int):
 
     wandb.init(project="sudgarg", name="xformer_scratch")
     train_start = datetime.now(PST)
@@ -65,7 +65,6 @@ def train():
     dataset = TextFileReader(file_path, seq_length=seq_length, tokenizer=tokenizer)
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True)
 
-    max_steps = 3500
     data_iter = iter(dataloader)
     for i in range(max_steps):
         try:
@@ -84,6 +83,8 @@ def train():
     
     model_path = f"src/resources/{train_start_str}-checkpoint.pt"
     torch.save(model.state_dict(), model_path)
+    print(f"saved checkpoint {model_path}")
+    return model_path
 
 def bucketize(query_1d: torch.Tensor, boundaries_2d: torch.Tensor) -> torch.Tensor:
     # query is of size bx1, boundaries of size b x vocab
@@ -140,5 +141,5 @@ def eval(model_path: str):
             print(tokenizer.tokenMapInt[next_token_int], end="")
     print()
 
-# train()
-eval(model_path="src/resources/1782743727-checkpoint.pt")
+ckpt_path = train(10000)
+eval(model_path=ckpt_path)

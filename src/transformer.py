@@ -11,6 +11,7 @@ input is [batch, seq_length] -> of integers (tokenIds) [TODO fix the current imp
 1. convert tokenIds -> embeddings -> [batch, seq_length, token_dim] (DONE)
 2. pre layer_norm (DONE)
 3. TODO padding when seq_length < context_length
+4. (DONE) take the correct tokens, earlier is better.
 
 ENCODER/DECODER BLOCK X 4
 2.1 positional encoding - cosine/rope (TODO)
@@ -33,7 +34,7 @@ train: cross entropy loss against label of next token
 wandb monitor TODO
 
 EVAL
-eval: sample from logits and take next token [TODO]
+eval: sample from logits and take next token [DONE]
 """
 class Utils():
     @staticmethod
