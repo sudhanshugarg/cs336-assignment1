@@ -6,26 +6,32 @@ import torch.nn.init as init
 import math
 
 """
-input is [batch, seq_length] -> of integers (tokenIds)
+input is [batch, seq_length] -> of integers (tokenIds) [TODO fix the current implementation]
 1. convert tokenIds -> embeddings -> [batch, seq_length, token_dim] (DONE)
 2. pre layer_norm (DONE)
 
 ENCODER/DECODER BLOCK X 4
-2.1 positional encoding (todo)
-3. causalselfattention (multi headed self attention)
-4. layer norm
-5. mlp
-6. layer norm
+2.1 positional encoding (TODO)
+3. causalselfattention (multi headed self attention) [DONE]
+4. layer norm [TODO] scale and shift params
+5. mlp [DONE]
+6. MOE [TODO]
+7. layer norm [DONE] scale and shift params
 
-(residual ?)
+(residual DONE)
 
 OUTPUT LAYER
 top_k (top k tokens), or top_p (cumulative probability reaches p)
-[b, seq, token_dim] -> logits (softmax)
-train: cross entropy loss against label of next token
-eval: sample from logits and take next token, and
-continue
+[b, seq, token_dim] -> logits (softmax) [DONE]
 
+
+TRAINING
+optimizer - write by self TODO
+train: cross entropy loss against label of next token
+wandb monitor TODO
+
+EVAL
+eval: sample from logits and take next token [TODO]
 """
 class Utils():
     @staticmethod
@@ -39,24 +45,24 @@ class EnDecoder(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
         attention_params = kwargs.copy()
-        attention_params.update({
-            "n_heads": 2
-        })
         self.attention = CausalSelfAttention(**attention_params)
-        self.ln = LayerNorm()
-
         mlp_params = kwargs.copy()
-        mlp_params.update({
-            "hidden_layer_dim": 4,
-            "hidden_layers": 2
-        })
         self.mlp = MLP(**mlp_params)
+        self.ln = LayerNorm(dim=kwargs["token_dim"])
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.attention(x, True)
-        x = self.ln(x)
-        x = self.mlp(x)
-        return self.ln(x)
+        #PreLN norm residual
+        # x1 = x.clone()
+        # x1 = self.ln(x1)
+        # x1 = self.attention(x1, True)
+        # x1 = x + x1
+        x = x + self.attention(self.ln(x), True)
+
+        # x2 = x1.clone()
+        # x2 = self.ln(x2)
+        # x2 = self.mlp(x2)
+        x = x + self.mlp(self.ln(x))
+        return x
 
 class HomeReLU(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -89,8 +95,8 @@ class MLP(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
         self.token_dim = kwargs["token_dim"]
-        self.hidden_layers = kwargs.pop("hidden_layers")
-        self.hidden_layer_dim = kwargs.pop("hidden_layer_dim")
+        self.hidden_layers = kwargs["mlp_hidden_layers"]
+        self.hidden_layer_dim = kwargs["mlp_hidden_layer_dim"]
 
         self.layers = []
         if self.hidden_layers <= 0:
@@ -135,7 +141,7 @@ class CausalSelfAttention(nn.Module):
         create qkv, up_proj
         """
         self.token_dim = kwargs["token_dim"]
-        self.n_heads = kwargs.pop("n_heads")
+        self.n_heads = kwargs["n_heads"]
         assert(self.n_heads > 0 and self.token_dim % self.n_heads == 0)
         self.head_dim = self.token_dim // self.n_heads
 
@@ -181,16 +187,21 @@ class CausalSelfAttention(nn.Module):
 
 
 class LayerNorm(nn.Module):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, dim: int) -> None:
         super().__init__()
-
+        self.dim = dim
+        self.gamma = nn.Parameter(torch.empty(self.dim))
+        self.beta = nn.Parameter(torch.empty(self.dim))
+        sigma = (1.0 / math.sqrt(self.dim))
+        init.trunc_normal_(self.gamma, mean=0.0, std=sigma, a=-3.0*sigma, b=3.0*sigma)
+        init.trunc_normal_(self.beta, mean=0.0, std=sigma, a=-3.0*sigma, b=3.0*sigma)
         self.eps = 1e-8
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        #x = [b, seq, token_dim]
         mu = torch.mean(x, dim=-1, keepdim=True) #column
         sigma = torch.std(x, dim=-1, keepdim=True)
-        return (x - mu) / (sigma + self.eps)
-
+        return (((x - mu) / (sigma + self.eps)) * self.gamma) + self.beta
 
 
 class Transformer(nn.Module):
@@ -203,7 +214,7 @@ class Transformer(nn.Module):
 
         self.tokenEmbeddings = nn.Parameter(torch.empty(self.vocab_size, self.token_dim))
         init.trunc_normal_(self.tokenEmbeddings, mean=0.0, std=1.0, a=-3.0, b=3.0)
-        self.ln = LayerNorm()
+        self.ln = LayerNorm(dim=self.token_dim)
 
         # with torch.no_grad():
         #     self.tokenEmbeddings.uniform_(0.0, 0.02)    
@@ -214,21 +225,14 @@ class Transformer(nn.Module):
 
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        batch_size, seq_len = x.shape
+        # batch_size, seq_len = x.shape
 
-        input_tensor = self.tokenEmbeddings[x]
-        pre_ln_input = self.ln(input_tensor)
-        # print(pre_ln_input.shape)
-        # print(pre_ln_input)
-
-        # print(torch.std(pre_ln_input, dim=-1))
-
-        y = pre_ln_input
+        y = self.tokenEmbeddings[x]
         for i in range(self.endecoder_layers):
             y = self.layers[i](y)
 
-        # print(input_tensor.shape)
-
+        #need one more layernorm at the end. Each of the endecoder layers does its own pre-ln.
+        y = self.ln(y)
         #now, need to convert the output, back into tokens
         output_token_logits = y @ self.tokenEmbeddings.T #b, seq, vocab_size
         output_token_probs = Utils.stable_softmax(output_token_logits)
