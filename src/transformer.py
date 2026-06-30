@@ -230,6 +230,10 @@ class Transformer(nn.Module):
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # batch_size, seq_len = x.shape
 
+        #ignore the pad tokens.
+        #TODO create the input mask
+        #padding token also gets learnt, but is useless.
+        print(x)
         y = self.tokenEmbeddings[x]
         for i in range(self.endecoder_layers):
             y = self.layers[i](y)

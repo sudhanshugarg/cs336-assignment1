@@ -9,7 +9,7 @@ class TextFileReader(Dataset):
 
         with open(path, "r") as f:
             self.raw_data = f.read()
-            self.tokens, self.token_ints = self.tokenizer.tokenize([self.raw_data])[0]
+            self.tokens, self.token_ints = self.tokenizer.tokenize([self.raw_data], seq_length=seq_length)[0]
             f.close()
         self.n = len(self.token_ints)
 

@@ -22,7 +22,7 @@ seq_length = 32
 
 
 def get_tensor(tokenizer: Tokenizer, x: list[str]) -> torch.Tensor:
-    tokens = tokenizer.tokenize(x)
+    tokens = tokenizer.tokenize(x, seq_length=seq_length)
     token_ints = []
     for token_str, token_int in tokens:
         token_ints.append(token_int)
@@ -33,10 +33,16 @@ def train_step(it: int, model: nn.Module, x: torch.Tensor, y: torch.Tensor):
     model.train()
     logits, probs = model(x)
     #each of the 3 indexes are broadcast into y.shape
+    #mask for y also has to be applied.
+    #we only take losses from y, for non-padded positions.
+    eps = 1e-8
+
+    label_mask = (y == Tokenizer.padding_token_int) * 1
     losses = probs[torch.arange(logits.shape[0])[:, None], torch.arange(logits.shape[1])[None, :], y]
+    losses = losses * label_mask
     # print(losses)
-    loss = losses.mean()
-    
+    loss = losses.sum() / (losses.numel() - label_mask.sum() + eps)
+
     if it % 500 == 0:
         print(f"{it}: loss = {loss.item()}")
     wandb.log({
@@ -119,12 +125,12 @@ def eval(model_path: str):
     #enter the same string again
     #get next predictions
     #continue forever
-    start = "Julius how goes it these days. I'm good cleopatra, nothhing new to report"
+    start = "Julius how goes it. it has been a while since you met cleo. All good "
     tokenizer_path = f"src/resources/tokenizer_input.txt_{params['vocab_size']}.pkl"
     tokenizer = Tokenizer(corpus_file_path="", tokenizer_path=tokenizer_path, vocab_size=params["vocab_size"])
 
     max_length = 50
-    tokens, token_ints = tokenizer.tokenize([start])[0]
+    tokens, token_ints = tokenizer.tokenize([start], seq_length=seq_length)[0]
 
     print(start, end="")
     with torch.no_grad():
