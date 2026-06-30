@@ -254,8 +254,8 @@ class Transformer(nn.Module):
         #TODO create the input mask
         #padding token also gets learnt, but is useless.
         # print(x)
-        y = self.tokenEmbeddings[x]
-        y = y + self.sinusoidalPositionalEmbeddings
+        y = self.tokenEmbeddings[x] #b, seq, token_dim
+        y = y + self.sinusoidalPositionalEmbeddings #seq, token_dim
 
         for i in range(self.endecoder_layers):
             y = self.layers[i](y)
