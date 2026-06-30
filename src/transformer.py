@@ -214,10 +214,14 @@ class Transformer(nn.Module):
         self.vocab_size = kwargs.pop("vocab_size")
         self.token_dim = kwargs["token_dim"]
         self.endecoder_layers = kwargs.pop("endecoder_layers")
+        self.seq_length = kwargs.pop("seq_length")
 
         self.tokenEmbeddings = nn.Parameter(torch.empty(self.vocab_size, self.token_dim))
         init.trunc_normal_(self.tokenEmbeddings, mean=0.0, std=1.0, a=-3.0, b=3.0)
         self.ln = LayerNorm(dim=self.token_dim)
+
+        self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
+        
 
         # with torch.no_grad():
         #     self.tokenEmbeddings.uniform_(0.0, 0.02)    
@@ -226,6 +230,22 @@ class Transformer(nn.Module):
         for i in range(self.endecoder_layers):
             self.layers.append(EnDecoder(**kwargs))
 
+    def _get_positional_embedding(self) -> torch.Tensor:
+        x_axis = torch.arange(self.seq_length, dtype=torch.int)
+        y_axis_even = torch.arange(0, self.token_dim, 2, dtype=torch.int)
+        y_axis_odd = torch.arange(1, self.token_dim, 2, dtype=torch.int)
+
+        float_type = torch.float16
+
+        seq_positions = torch.arange(self.seq_length)[:, None] #4, 1
+        powers = 10000 ** (torch.arange(0, self.token_dim, 2) / self.token_dim)
+        even_powers = torch.sin(powers)
+        odd_powers = torch.cos(powers)
+
+        positional_emb = torch.empty(self.seq_length, self.token_dim, dtype=float_type)
+        positional_emb[x_axis[:, None], y_axis_even[None, :]] = (seq_positions / even_powers).to(float_type)
+        positional_emb[x_axis[:, None], y_axis_odd[None, :]] = (seq_positions / odd_powers).to(float_type)
+        return positional_emb
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # batch_size, seq_len = x.shape
@@ -233,8 +253,10 @@ class Transformer(nn.Module):
         #ignore the pad tokens.
         #TODO create the input mask
         #padding token also gets learnt, but is useless.
-        print(x)
+        # print(x)
         y = self.tokenEmbeddings[x]
+        y = y + self.sinusoidalPositionalEmbeddings
+
         for i in range(self.endecoder_layers):
             y = self.layers[i](y)
 

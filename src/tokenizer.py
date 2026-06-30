@@ -200,19 +200,19 @@ class Tokenizer(ABC):
 
         return tokens, tokenInts
 
-vocabSize = 10000
-tokenizer_path = f"src/resources/tokenMap_{vocabSize}.pkl"
-tokenizer = Tokenizer("src/resources/input.txt", tokenizer_path, vocab_size=vocabSize, overwrite=False)
-with open(tokenizer_path, "rb") as f:
-    tmap = pickle.load(f)
+# vocabSize = 10000
+# tokenizer_path = f"src/resources/tokenMap_{vocabSize}.pkl"
+# tokenizer = Tokenizer("src/resources/input.txt", tokenizer_path, vocab_size=vocabSize, overwrite=False)
+# with open(tokenizer_path, "rb") as f:
+#     tmap = pickle.load(f)
 
-lengths = [(len(key), key) for key in tmap["tokenMap"].keys()]
-lengths.sort()
-print(lengths[-3:])
-# for k, v in tmap.items():
-#     print(f"#{k}#: -{v}-")
+# lengths = [(len(key), key) for key in tmap["tokenMap"].keys()]
+# lengths.sort()
+# print(lengths[-3:])
+# # for k, v in tmap.items():
+# #     print(f"#{k}#: -{v}-")
 
-s = "thereit is the best of the best"
-t, ti = tokenizer._tokenize_and_pad(s, 16)
-print(t)
-print(ti)
+# s = "thereit is the best of the best"
+# t, ti = tokenizer._tokenize_and_pad(s, 16)
+# print(t)
+# print(ti)

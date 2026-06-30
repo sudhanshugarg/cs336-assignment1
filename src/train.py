@@ -10,15 +10,17 @@ from zoneinfo import ZoneInfo
 import os
 
 PST = ZoneInfo("America/Los_Angeles")
+seq_length = 128
 params = {
-    "vocab_size": 1000,
-    "token_dim": 16,
-    "endecoder_layers": 2,
-    "n_heads": 2,
-    "mlp_hidden_layer_dim": 4,
-    "mlp_hidden_layers": 2
+    "vocab_size": 10000,
+    "token_dim": 384,
+    "endecoder_layers": 4,
+    "n_heads": 4,
+    "mlp_hidden_layer_dim": 128,
+    "mlp_hidden_layers": 2,
+    "seq_length": seq_length
 }
-seq_length = 32
+wandb_log = True
 
 
 def get_tensor(tokenizer: Tokenizer, x: list[str]) -> torch.Tensor:
@@ -37,24 +39,28 @@ def train_step(it: int, model: nn.Module, x: torch.Tensor, y: torch.Tensor):
     #we only take losses from y, for non-padded positions.
     eps = 1e-8
 
-    label_mask = (y == Tokenizer.padding_token_int) * 1
+    label_mask = (y != Tokenizer.padding_token_int) * 1
+    # print(label_mask)
     losses = probs[torch.arange(logits.shape[0])[:, None], torch.arange(logits.shape[1])[None, :], y]
     losses = losses * label_mask
     # print(losses)
-    loss = losses.sum() / (losses.numel() - label_mask.sum() + eps)
+    loss = losses.sum() / (label_mask.sum() + eps)
 
     if it % 500 == 0:
         print(f"{it}: loss = {loss.item()}")
-    wandb.log({
-        "iter": it,
-        "loss": loss.item()
-    })
+        eval_model(model)
+    if wandb_log:
+        wandb.log({
+            "iter": it,
+            "loss": loss.item()
+        })
     loss.backward()
 
 
 def train(max_steps: int):
 
-    wandb.init(project="sudgarg", name="xformer_scratch")
+    if wandb_log:
+        wandb.init(project="sudgarg", name="xformer_scratch")
     train_start = datetime.now(PST)
     train_start_str = train_start.strftime("%s")
 
@@ -63,7 +69,7 @@ def train(max_steps: int):
     file_name = "input.txt"
     file_path = f"src/resources/{file_name}"
     tokenizer_path = f"src/resources/tokenizer_{file_name}_{params['vocab_size']}.pkl"
-    tokenizer = Tokenizer(file_path, tokenizer_path, vocab_size=params["vocab_size"], overwrite=True)
+    tokenizer = Tokenizer(file_path, tokenizer_path, vocab_size=params["vocab_size"], overwrite=False)
     # tokenizer.tokenize()
 
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
@@ -117,6 +123,9 @@ def eval(model_path: str):
 
     model = Transformer(**params)
     model.load_state_dict(checkpoint)
+    eval_model(model)
+
+def eval_model(model: nn.Module):
     model.eval()
 
     #start string
