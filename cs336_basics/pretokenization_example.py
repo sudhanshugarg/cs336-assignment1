@@ -24,7 +24,6 @@ def find_chunk_boundaries(
     # Chunks start on previous index, don't include last index
     chunk_boundaries = [i * chunk_size for i in range(desired_num_chunks + 1)]
     chunk_boundaries[-1] = file_size
-    print(chunk_boundaries)
 
     mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
 
@@ -51,19 +50,18 @@ def find_chunk_boundaries(
 
 
 ## Usage
-with open("src/resources/input.txt", "rb") as f:
-    num_processes = 4
-    boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
-    print(boundaries)
+# with open("src/resources/words.txt", "rb") as f:
+#     num_processes = 1
+#     boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+#     print(boundaries)
 
-    exit()
-    # The following is a serial implementation, but you can parallelize this
-    # by sending each start/end pair to a set of processes.
-    i = 0
-    for start, end in zip(boundaries[:-1], boundaries[1:]):
-        f.seek(start)
-        chunk = f.read(end - start).decode("utf-8", errors="ignore")
-        print(chunk)
-        if i > 2:
-            break
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
+#     # The following is a serial implementation, but you can parallelize this
+#     # by sending each start/end pair to a set of processes.
+#     i = 0
+#     for start, end in zip(boundaries[:-1], boundaries[1:]):
+#         f.seek(start)
+#         chunk = f.read(end - start).decode("utf-8", errors="ignore")
+#         print(chunk)
+#         # if i > 2:
+#         #     break
+#         # Run pre-tokenization on your chunk and store the counts for each pre-token
