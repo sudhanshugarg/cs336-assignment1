@@ -91,33 +91,32 @@ class BPETokenizer():
             while True:
                 largest, tokenPair = heapq.heappop(self.h)
                 largest *= -1
-                nextToken = tokenPair[0] + tokenPair[1]
-                if nextToken not in tokenCountsChanged:
+                if tokenPair not in tokenCountsChanged:
                     break
                 
-                updated_count = largest + tokenCountsChanged[nextToken]
-                del tokenCountsChanged[nextToken]
+                updated_count = largest + tokenCountsChanged[tokenPair]
+                del tokenCountsChanged[tokenPair]
                 heapq.heappush(self.h, (-updated_count, tokenPair))
 
             self.merges.append(tokenPair)           
-            self.tokenMap[nextToken] = self.nextTokenId
+            tokenPairJoined = tokenPair[0] + tokenPair[1]
+            self.tokenMap[tokenPairJoined] = self.nextTokenId
             self.nextTokenId += 1
 
             #need to update self.wordCount
             #for that, i need to know, for this token, all the words it was in.
             word_tuples_to_be_changed = where[tokenPair]
-            tokenPairList = list(tokenPair)
             createdTokens = set()
             for word_tuple in word_tuples_to_be_changed:
-                self.update_counts(list(word_tuple), self.wordCount[word_tuple], tokenPairList, tokenCountsChanged, createdTokens)
+                self.update_counts(list(word_tuple), self.wordCount[word_tuple], tokenPair, tokenCountsChanged, createdTokens)
 
             print("next...")
-            print(largest, tokenPair, nextToken)
+            print(largest, tokenPair, tokenPairJoined)
             word_tuples_decoded = []
             for word_tuple in word_tuples_to_be_changed:
                 word_tuples_decoded.append(self._get_str_list(list(word_tuple)))
                     
-            # print(word_tuples_decoded)
+            print(word_tuples_decoded)
             print("created:", createdTokens)
             # for k, v in self.wordCount.items():
             #     print(k, v)
@@ -126,12 +125,13 @@ class BPETokenizer():
             for new_token_pair in createdTokens:
                 heapq.heappush(self.h, (-tokenCountsChanged[new_token_pair], new_token_pair))
                 self.pairsInHeap.add(new_token_pair)
+                del tokenCountsChanged[new_token_pair]
             
 
     def update_counts(self, 
                         word_tuple: list[bytes],
                         word_tuple_count: int,
-                        tokenPair: list[bytes], 
+                        tokenPair: tuple[bytes, bytes],
                         tokenCountsChanged: dict[tuple[bytes, bytes], int],
                         createdTokens: set[tuple[bytes, bytes]]) -> None:
         """
@@ -141,8 +141,7 @@ class BPETokenizer():
 
         prevTokenPairCounts = defaultdict(lambda: 0)
         newTokenCounts = defaultdict(lambda: 0)
-        newPair = (tokenPair[0], tokenPair[1])
-        newPairJoined = tokenPair[0] + tokenPair[1]
+        tokenPairJoined = tokenPair[0] + tokenPair[1]
 
         n = len(word_tuple)
         new_word_tuple = []
@@ -155,10 +154,10 @@ class BPETokenizer():
         i = 0
         while i < (n-1):
             currPair = (word_tuple[i], word_tuple[i+1])
-            if currPair != newPair:
+            if currPair != tokenPair:
                 new_word_tuple.append(word_tuple[i])
             else:
-                new_word_tuple.append(newPairJoined)
+                new_word_tuple.append(tokenPairJoined)
                 i += 1
             i += 1
 
@@ -186,7 +185,7 @@ class BPETokenizer():
                 del tokenCountsChanged[pair]
 
         #we've already chosen tokenPair, dont need it anymore.
-        del tokenCountsChanged[newPair]
+        del tokenCountsChanged[tokenPair]
 
         print("changes:", tokenCountsChanged)
         del self.wordCount[tuple(word_tuple)]
