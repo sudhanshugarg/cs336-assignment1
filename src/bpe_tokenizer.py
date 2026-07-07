@@ -3,6 +3,7 @@ from typing import Any
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 import regex
 from collections import defaultdict
+from multiprocessing import Process
 import heapq
 
 
@@ -264,4 +265,9 @@ print(tokenizer.tokenFreq[(b" g", b"ive")])
 #     print(" give", len(matches1))
 #     matches2 = re.findall(r"\n\n", content)
 #     print("newline", len(matches2))
+
+from datasets import load_dataset
+
+# ds = load_dataset("roneneldan/TinyStories")
+ds2 = load_dataset("Skylion007/openwebtext")
 
