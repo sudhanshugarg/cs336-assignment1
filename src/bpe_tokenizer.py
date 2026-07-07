@@ -44,7 +44,7 @@ class BPETokenizer():
         self.nextTokenId = 256
         self.pairsInHeap = set()
         self.h = []
-        self.whereIsPair = defaultdict(lambda: [])
+        self.whereIsPair = defaultdict(lambda: set())
 
     def train_bpe(self) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
         """
@@ -99,7 +99,7 @@ class BPETokenizer():
             for i in range(n-1):
                 pair = (word_tuple[i], word_tuple[i+1])
                 freq[pair] += count
-                self.whereIsPair[pair].append(word_tuple)
+                self.whereIsPair[pair].add(word_tuple)
 
         for pair, count in freq.items():
             heapq.heappush(self.h, TokenPair(count, pair))
@@ -130,8 +130,8 @@ class BPETokenizer():
 
             #need to update self.wordCount
             #for that, i need to know, for this token, all the words it was in.
-            word_tuples_to_be_changed = self.whereIsPair[tokenPair]
-            # print("to be changed:", word_tuples_to_be_changed)
+            word_tuples_to_be_changed = self.whereIsPair[tokenPair].copy()
+            print("to be changed:", word_tuples_to_be_changed)
             createdTokens = set()
             for word_tuple in word_tuples_to_be_changed:
                 # print("calling with: ", word_tuple)
@@ -142,9 +142,7 @@ class BPETokenizer():
                 word_tuples_decoded.append(self._get_str_list(list(word_tuple)))
                     
             # print(word_tuples_decoded)
-            # print("created:", createdTokens)
-            # for k, v in self.wordCount.items():
-            #     print(k, v)
+            print("created:", createdTokens)
             self._print_word_count()
 
             for new_token_pair in createdTokens:
@@ -154,7 +152,7 @@ class BPETokenizer():
             
 
     def update_counts(self, 
-                        word_tuple: list[bytes],
+                        word_tuple_list: list[bytes],
                         word_tuple_count: int,
                         tokenPair: tuple[bytes, bytes],
                         tokenCountsChanged: dict[tuple[bytes, bytes], int],
@@ -168,38 +166,41 @@ class BPETokenizer():
         newTokenCounts = defaultdict(lambda: 0)
         tokenPairJoined = tokenPair[0] + tokenPair[1]
 
-        n = len(word_tuple)
+        n = len(word_tuple_list)
+        word_tuple = tuple(word_tuple_list)
         new_word_tuple_list = []
         i = 0
         while i < (n-1):
-            currPair = (word_tuple[i], word_tuple[i+1])
+            currPair = (word_tuple_list[i], word_tuple_list[i+1])
             prevTokenPairCounts[currPair] += word_tuple_count
+            if word_tuple in self.whereIsPair[currPair]:
+                self.whereIsPair[currPair].remove(word_tuple)
             i += 1
         
         i = 0
         while i < (n-1):
-            currPair = (word_tuple[i], word_tuple[i+1])
+            currPair = (word_tuple_list[i], word_tuple_list[i+1])
             if currPair != tokenPair:
-                new_word_tuple_list.append(word_tuple[i])
+                new_word_tuple_list.append(word_tuple_list[i])
             else:
                 new_word_tuple_list.append(tokenPairJoined)
                 i += 1
             i += 1
 
         if i < n:
-            new_word_tuple_list.append(word_tuple[n-1])
+            new_word_tuple_list.append(word_tuple_list[n-1])
 
 
         new_word_tuple = tuple(new_word_tuple_list)
         self.wordCount[new_word_tuple] = word_tuple_count
-        del self.wordCount[tuple(word_tuple)]
+        del self.wordCount[word_tuple]
 
         n2 = len(new_word_tuple_list)
         for i in range(n2-1):
             currPair = (new_word_tuple_list[i], new_word_tuple_list[i+1])
             if currPair not in self.pairsInHeap:
                 createdTokens.add(currPair)
-                self.whereIsPair[currPair].append(new_word_tuple)
+            self.whereIsPair[currPair].add(new_word_tuple)
             newTokenCounts[currPair] += word_tuple_count
         
         # print("prev:", prevTokenPairCounts)
@@ -220,7 +221,7 @@ class BPETokenizer():
 
 params = {
     "input_path": "src/resources/example.txt",
-    "vocab_size": 265,
+    "vocab_size": 262,
     "special_tokens": [
         "<|endoftext|>"
     ]
