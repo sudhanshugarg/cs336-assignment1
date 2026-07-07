@@ -24,10 +24,12 @@ def find_chunk_boundaries(
     # Chunks start on previous index, don't include last index
     chunk_boundaries = [i * chunk_size for i in range(desired_num_chunks + 1)]
     chunk_boundaries[-1] = file_size
+    print("chunk_boundaries: ", chunk_boundaries)
 
     mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
 
     for bi in range(1, len(chunk_boundaries) - 1):
+        print("bi: ", bi)
         initial_position = chunk_boundaries[bi]
         file.seek(initial_position)  # Start at boundary guess
         while True:

@@ -34,13 +34,15 @@ class BPETokenizer():
         self.special_tokens = kwargs["special_tokens"]
 
         with open(self.input_path, "rb") as f:
-            num_processes = 1
+            num_processes = 3
             self.boundaries = find_chunk_boundaries(f, num_processes, self.special_tokens[0].encode("utf-8"))
         
-        self.words = []
+        print(self.boundaries)
+
         self.wordCount = defaultdict(lambda: 0)
         self.merges = []
         self.tokenMap = {}
+        self.tokenMapInt = {}
         self.nextTokenId = 256
         self.pairsInHeap = set()
         self.h = []
@@ -52,7 +54,9 @@ class BPETokenizer():
         2. for each word, count frequency of pairs
         3. take best pair
         """
-        return ({}, [])
+        self.breakup_1()
+        self.pairwise_2()
+        return (self.tokenMapInt, self.merges)
 
     def _get_str_list(self, word: list[bytes]) -> list[str]:
         result = []
@@ -73,12 +77,12 @@ class BPETokenizer():
                 chunk = f.read(end - start).decode("utf-8", errors="ignore")
                 for match in PAT.finditer(chunk):
                     word = match.group()
-                    self.words.append(word)
 
                     word_int_tuple = list(word.encode("utf-8"))
                     word_tuple_arr = []
                     for c in word_int_tuple:
                         self.tokenMap[bytes([c])] = c
+                        self.tokenMapInt[c] = bytes([c])
                         word_tuple_arr.append(bytes([c]))
                     word_tuple = tuple(word_tuple_arr)
                     
@@ -126,6 +130,7 @@ class BPETokenizer():
 
             self.merges.append(tokenPair)           
             self.tokenMap[tokenPairJoined] = self.nextTokenId
+            self.tokenMapInt[self.nextTokenId] = tokenPairJoined
             self.nextTokenId += 1
 
             #need to update self.wordCount
@@ -228,7 +233,4 @@ params = {
 }
 
 tokenizer = BPETokenizer(**params)
-tokenizer.breakup_1()
-# tokenizer._print_word_count()
-
-tokenizer.pairwise_2()
+tokenizer.train_bpe()
