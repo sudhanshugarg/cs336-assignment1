@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Any
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 import regex
@@ -5,6 +6,26 @@ from collections import defaultdict
 import heapq
 
 PAT = regex.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+
+class TokenPair():
+    def __init__(self, count: int, pair: tuple[bytes, bytes]):
+        self.count = count
+        self.pair = pair
+    
+    def __lt__(self, other: TokenPair):
+        if self.count > other.count:
+            return True
+        elif self.count == other.count:
+            return self.pair > other.pair
+        else:
+            return False
+        
+    def __hash__(self):
+        return (hash(self.count) ^ hash(self.pair)) % 1000000007
+    
+    def __eq__(self, other: TokenPair):
+        return self.count == other.count and self.pair == other.pair
+
 
 class BPETokenizer():
     def __init__(self, *args: Any, **kwargs: Any):
@@ -81,7 +102,7 @@ class BPETokenizer():
                 self.whereIsPair[pair].append(word_tuple)
 
         for pair, count in freq.items():
-            heapq.heappush(self.h, (-count, pair))
+            heapq.heappush(self.h, TokenPair(count, pair))
             self.pairsInHeap.add(pair)
         
         tokenCountsChanged = defaultdict(lambda: 0)
@@ -90,14 +111,14 @@ class BPETokenizer():
         while (len(self.h) > 0) and self.nextTokenId < self.vocab_size:
             k += 1
             while True:
-                largest, tokenPair = heapq.heappop(self.h)
-                largest *= -1
+                item = heapq.heappop(self.h)
+                largest, tokenPair = item.count, item.pair
                 if tokenPair not in tokenCountsChanged:
                     break
                 
                 updated_count = largest + tokenCountsChanged[tokenPair]
                 del tokenCountsChanged[tokenPair]
-                heapq.heappush(self.h, (-updated_count, tokenPair))
+                heapq.heappush(self.h, TokenPair(updated_count, tokenPair))
 
             print("\n\nnext...")
             tokenPairJoined = tokenPair[0] + tokenPair[1]
@@ -120,14 +141,14 @@ class BPETokenizer():
             for word_tuple in word_tuples_to_be_changed:
                 word_tuples_decoded.append(self._get_str_list(list(word_tuple)))
                     
-            print(word_tuples_decoded)
-            print("created:", createdTokens)
+            # print(word_tuples_decoded)
+            # print("created:", createdTokens)
             # for k, v in self.wordCount.items():
             #     print(k, v)
             self._print_word_count()
 
             for new_token_pair in createdTokens:
-                heapq.heappush(self.h, (-tokenCountsChanged[new_token_pair], new_token_pair))
+                heapq.heappush(self.h, TokenPair(tokenCountsChanged[new_token_pair], new_token_pair))
                 self.pairsInHeap.add(new_token_pair)
                 del tokenCountsChanged[new_token_pair]
             
@@ -181,8 +202,8 @@ class BPETokenizer():
                 self.whereIsPair[currPair].append(new_word_tuple)
             newTokenCounts[currPair] += word_tuple_count
         
-        print("prev:", prevTokenPairCounts)
-        print("new:", newTokenCounts)
+        # print("prev:", prevTokenPairCounts)
+        # print("new:", newTokenCounts)
 
 
         for pair, count in prevTokenPairCounts.items():
@@ -194,12 +215,12 @@ class BPETokenizer():
 
         #we've already chosen tokenPair, dont need it anymore.
         del tokenCountsChanged[tokenPair]
-        print("changes:", tokenCountsChanged)
+        # print("changes:", tokenCountsChanged)
 
 
 params = {
     "input_path": "src/resources/example.txt",
-    "vocab_size": 259,
+    "vocab_size": 265,
     "special_tokens": [
         "<|endoftext|>"
     ]
