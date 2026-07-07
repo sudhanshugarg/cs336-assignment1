@@ -8,7 +8,7 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
-from ..src.bpe_tokenizer import BPETokenizer
+from src.bpe_tokenizer import BPETokenizer
 
 
 def run_linear(
@@ -595,5 +595,5 @@ def run_train_bpe(
         "vocab_size": vocab_size,
         "special_tokens": special_tokens
     }
-    tokenizer = BPETokenizer(params)
+    tokenizer = BPETokenizer(**params)
     return tokenizer.train_bpe()

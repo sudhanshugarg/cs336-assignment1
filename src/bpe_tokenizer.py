@@ -5,7 +5,6 @@ import regex
 from collections import defaultdict
 import heapq
 
-PAT = regex.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
 
 class TokenPair():
     def __init__(self, count: int, pair: tuple[bytes, bytes]):
@@ -32,21 +31,33 @@ class BPETokenizer():
         self.input_path = kwargs["input_path"]
         self.vocab_size = kwargs["vocab_size"]
         self.special_tokens = kwargs["special_tokens"]
+        special_token_bytes = self.special_tokens[0].encode("utf-8")
+        special_token_regex = regex.escape(self.special_tokens[0])
+        regex_string = r"""'(?:[sdmt]|ll|ve|re)| ?""" + special_token_regex + r"""| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        # print(regex_string)
+        self.PAT = regex.compile(regex_string)
+
 
         with open(self.input_path, "rb") as f:
             num_processes = 3
-            self.boundaries = find_chunk_boundaries(f, num_processes, self.special_tokens[0].encode("utf-8"))
+            self.boundaries = find_chunk_boundaries(f, num_processes, special_token_bytes)
         
-        print(self.boundaries)
+        # print(self.boundaries)
 
         self.wordCount = defaultdict(lambda: 0)
         self.merges = []
         self.tokenMap = {}
         self.tokenMapInt = {}
-        self.nextTokenId = 256
+        self.nextTokenId = 257
         self.pairsInHeap = set()
         self.h = []
         self.whereIsPair = defaultdict(lambda: set())
+
+        self.tokenMap[special_token_bytes] = 0
+        self.tokenMapInt[0] = special_token_bytes
+        for i in range(256):
+            self.tokenMap[bytes([i])] = i+1
+            self.tokenMapInt[i+1] = bytes([i])
 
     def train_bpe(self) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
         """
@@ -75,14 +86,16 @@ class BPETokenizer():
             for start, end in zip(self.boundaries[:-1], self.boundaries[1:]):
                 f.seek(start)
                 chunk = f.read(end - start).decode("utf-8", errors="ignore")
-                for match in PAT.finditer(chunk):
+                for match in self.PAT.finditer(chunk):
                     word = match.group()
+                    if word == self.special_tokens[0]:
+                        continue
 
                     word_int_tuple = list(word.encode("utf-8"))
                     word_tuple_arr = []
                     for c in word_int_tuple:
-                        self.tokenMap[bytes([c])] = c
-                        self.tokenMapInt[c] = bytes([c])
+                        # self.tokenMap[bytes([c])] = c
+                        # self.tokenMapInt[c] = bytes([c])
                         word_tuple_arr.append(bytes([c]))
                     word_tuple = tuple(word_tuple_arr)
                     
@@ -124,9 +137,9 @@ class BPETokenizer():
                 del tokenCountsChanged[tokenPair]
                 heapq.heappush(self.h, TokenPair(updated_count, tokenPair))
 
-            print("\n\nnext...")
+            # print("\n\nnext...")
             tokenPairJoined = tokenPair[0] + tokenPair[1]
-            print(largest, tokenPair, tokenPairJoined)
+            # print(largest, tokenPair, tokenPairJoined)
 
             self.merges.append(tokenPair)           
             self.tokenMap[tokenPairJoined] = self.nextTokenId
@@ -136,19 +149,19 @@ class BPETokenizer():
             #need to update self.wordCount
             #for that, i need to know, for this token, all the words it was in.
             word_tuples_to_be_changed = self.whereIsPair[tokenPair].copy()
-            print("to be changed:", word_tuples_to_be_changed)
+            # print("to be changed:", word_tuples_to_be_changed)
             createdTokens = set()
             for word_tuple in word_tuples_to_be_changed:
                 # print("calling with: ", word_tuple)
                 self.update_counts(list(word_tuple), self.wordCount[word_tuple], tokenPair, tokenCountsChanged, createdTokens)
 
-            word_tuples_decoded = []
-            for word_tuple in word_tuples_to_be_changed:
-                word_tuples_decoded.append(self._get_str_list(list(word_tuple)))
+            # word_tuples_decoded = []
+            # for word_tuple in word_tuples_to_be_changed:
+            #     word_tuples_decoded.append(self._get_str_list(list(word_tuple)))
                     
             # print(word_tuples_decoded)
-            print("created:", createdTokens)
-            self._print_word_count()
+            # print("created:", createdTokens)
+            # self._print_word_count()
 
             for new_token_pair in createdTokens:
                 heapq.heappush(self.h, TokenPair(tokenCountsChanged[new_token_pair], new_token_pair))
@@ -234,3 +247,4 @@ params = {
 
 tokenizer = BPETokenizer(**params)
 tokenizer.train_bpe()
+# tokenizer._print_word_count()
