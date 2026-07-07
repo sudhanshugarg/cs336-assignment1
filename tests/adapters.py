@@ -593,7 +593,8 @@ def run_train_bpe(
     params = {
         "input_path": input_path,
         "vocab_size": vocab_size,
-        "special_tokens": special_tokens
+        "special_tokens": special_tokens,
+        "num_processes": 10
     }
     tokenizer = BPETokenizer(**params)
     return tokenizer.train_bpe()

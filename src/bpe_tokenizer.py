@@ -3,9 +3,8 @@ from typing import Any
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 import regex
 from collections import defaultdict
-from multiprocessing import Process
+from multiprocessing import Pool, get_context
 import heapq
-
 
 class TokenPair():
     def __init__(self, count: int, pair: tuple[bytes, bytes]):
@@ -27,33 +26,53 @@ class TokenPair():
         return self.count == other.count and self.pair == other.pair
 
 
+def bpe_read_chunk(chunk: str, pat_str: str, special_token: str):
+    pat = regex.compile(pat_str)
+    chunkWordCount = defaultdict(int)
+    for match in pat.finditer(chunk):
+        word = match.group()
+        if word == special_token:
+            continue
+
+        word_int_tuple = list(word.encode("utf-8"))
+        word_tuple_arr = []
+        for c in word_int_tuple:
+            # self.tokenMap[bytes([c])] = c
+            # self.tokenMapInt[c] = bytes([c])
+            word_tuple_arr.append(bytes([c]))
+        word_tuple = tuple(word_tuple_arr)
+
+        chunkWordCount[word_tuple] += 1
+
+    return chunkWordCount
+
 class BPETokenizer():
     def __init__(self, *args: Any, **kwargs: Any):
         self.input_path = kwargs["input_path"]
         self.vocab_size = kwargs["vocab_size"]
         self.special_tokens = kwargs["special_tokens"]
+        self.num_processes = kwargs["num_processes"]
         special_token_bytes = self.special_tokens[0].encode("utf-8")
         special_token_regex = regex.escape(self.special_tokens[0])
-        regex_string = r"""'(?:[sdmt]|ll|ve|re)| ?""" + special_token_regex + r"""| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        self.regex_string = r"""'(?:[sdmt]|ll|ve|re)| ?""" + special_token_regex + r"""| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         # print(regex_string)
-        self.PAT = regex.compile(regex_string)
+        self.PAT = regex.compile(self.regex_string)
 
 
         with open(self.input_path, "rb") as f:
-            num_processes = 3
-            self.boundaries = find_chunk_boundaries(f, num_processes, special_token_bytes)
+            self.boundaries = find_chunk_boundaries(f, self.num_processes, special_token_bytes)
         
         # print(self.boundaries)
 
-        self.wordCount = defaultdict(lambda: 0)
+        self.wordCount = defaultdict(int)
         self.merges = []
         self.tokenMap = {}
         self.tokenMapInt = {}
         self.nextTokenId = 257
         self.pairsInHeap = set()
         self.h = []
-        self.whereIsPair = defaultdict(lambda: set())
-        self.tokenFreq = defaultdict(lambda: 0)
+        self.whereIsPair = defaultdict(set)
+        self.tokenFreq = defaultdict(int)
 
 
         self.tokenMap[special_token_bytes] = 0
@@ -84,26 +103,51 @@ class BPETokenizer():
             d[tuple(self._get_str_list(k))] = v
         print(d)
 
+    def _read_chunk(self, chunk: str):
+        chunkWordCount = defaultdict(int)
+        for match in self.PAT.finditer(chunk):
+            word = match.group()
+            if word == self.special_tokens[0]:
+                continue
+
+            word_int_tuple = list(word.encode("utf-8"))
+            word_tuple_arr = []
+            for c in word_int_tuple:
+                # self.tokenMap[bytes([c])] = c
+                # self.tokenMapInt[c] = bytes([c])
+                word_tuple_arr.append(bytes([c]))
+            word_tuple = tuple(word_tuple_arr)
+
+            chunkWordCount[word_tuple] += 1
+
+        return chunkWordCount
+
+
+    def _update_chunk_count(self, chunkWordCount: dict[tuple, int]):
+        for key, value in chunkWordCount.items():
+            self.wordCount[key] += value
+
+
     def breakup_1(self):
+        ctx = get_context('spawn')
+        chunks = []
+        chunks_small = []
         with open(self.input_path, "rb") as f:
             for start, end in zip(self.boundaries[:-1], self.boundaries[1:]):
                 f.seek(start)
                 chunk = f.read(end - start).decode("utf-8", errors="ignore")
-                for match in self.PAT.finditer(chunk):
-                    word = match.group()
-                    if word == self.special_tokens[0]:
-                        continue
+                # args=(chunk, self.regex_string, self.special_tokens[0])
+                # chunks.append(args)
+                chunks_small.append((chunk,))
+                
+        with ctx.Pool(processes=2) as pool:
+            # results = pool.starmap(bpe_read_chunk, chunks)
+            results = pool.starmap(self._read_chunk, chunks_small)
 
-                    word_int_tuple = list(word.encode("utf-8"))
-                    word_tuple_arr = []
-                    for c in word_int_tuple:
-                        # self.tokenMap[bytes([c])] = c
-                        # self.tokenMapInt[c] = bytes([c])
-                        word_tuple_arr.append(bytes([c]))
-                    word_tuple = tuple(word_tuple_arr)
-                    
-                    self.wordCount[word_tuple] += 1
-                    
+        for r in results:
+            self._update_chunk_count(r)
+
+        print(f"Done reading {len(self.boundaries)-1} chunks")
 
     def pairwise_2(self):
         #next, for each word, we go pairwise
@@ -123,7 +167,7 @@ class BPETokenizer():
             heapq.heappush(self.h, TokenPair(count, pair))
             self.pairsInHeap.add(pair)
 
-        tokenCountsChanged = defaultdict(lambda: 0)
+        tokenCountsChanged = defaultdict(int)
 
         k = 0
         while (len(self.h) > 0) and self.nextTokenId < self.vocab_size:
@@ -182,8 +226,8 @@ class BPETokenizer():
         then, once done, we need to update the counts of all the tokens.
         """
 
-        prevTokenPairCounts = defaultdict(lambda: 0)
-        newTokenCounts = defaultdict(lambda: 0)
+        prevTokenPairCounts = defaultdict(int)
+        newTokenCounts = defaultdict(int)
         tokenPairJoined = tokenPair[0] + tokenPair[1]
 
         n = len(word_tuple_list)
@@ -238,36 +282,36 @@ class BPETokenizer():
         del tokenCountsChanged[tokenPair]
         # print("changes:", tokenCountsChanged)
 
+if __name__ == "__main__":
+    params = {
+        "input_path": "tests/fixtures/tinystories_sample_5M.txt",
+        "vocab_size": 1000,
+        "special_tokens": [
+            "<|endoftext|>"
+        ]
+    }
 
-params = {
-    "input_path": "tests/fixtures/tinystories_sample_5M.txt",
-    "vocab_size": 1000,
-    "special_tokens": [
-        "<|endoftext|>"
-    ]
-}
+    tokenizer = BPETokenizer(**params)
+    tokenizer.train_bpe()
+    print(tokenizer.tokenFreq[(b"\n", b"\n")])
+    print(tokenizer.tokenFreq[(b" g", b"ive")])
+    # tokenizer._print_word_count()
 
-tokenizer = BPETokenizer(**params)
-tokenizer.train_bpe()
-print(tokenizer.tokenFreq[(b"\n", b"\n")])
-print(tokenizer.tokenFreq[(b" g", b"ive")])
-# tokenizer._print_word_count()
+    # import pickle
+    # with open("tests/_snapshots/test_train_bpe_special_tokens.pkl", "rb") as f:
+    #     data = pickle.load(f)
+    #     print(len(data["merges"]))
 
-# import pickle
-# with open("tests/_snapshots/test_train_bpe_special_tokens.pkl", "rb") as f:
-#     data = pickle.load(f)
-#     print(len(data["merges"]))
+    # import re
+    # with open("tests/fixtures/tinystories_sample_5M.txt", "r") as f:
+    #     content = f.read()
+    #     matches1 = re.findall(r" give", content)
+    #     print(" give", len(matches1))
+    #     matches2 = re.findall(r"\n\n", content)
+    #     print("newline", len(matches2))
 
-# import re
-# with open("tests/fixtures/tinystories_sample_5M.txt", "r") as f:
-#     content = f.read()
-#     matches1 = re.findall(r" give", content)
-#     print(" give", len(matches1))
-#     matches2 = re.findall(r"\n\n", content)
-#     print("newline", len(matches2))
+    # from datasets import load_dataset
 
-from datasets import load_dataset
-
-# ds = load_dataset("roneneldan/TinyStories")
-ds2 = load_dataset("Skylion007/openwebtext")
+    # ds = load_dataset("roneneldan/TinyStories")
+    # ds2 = load_dataset("Skylion007/openwebtext")
 
