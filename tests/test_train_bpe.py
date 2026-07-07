@@ -86,3 +86,17 @@ def test_train_bpe_special_tokens(snapshot):
             "merges": merges,
         },
     )
+
+
+    # import pickle
+    # with open("tests/_snapshots/test_train_bpe_special_tokens.pkl", "rb") as f:
+    #     data = pickle.load(f)
+    #     assert data["vocab_keys"] == set(vocab.keys())
+    #     start, stop = 627, 629
+    #     print()
+    #     print(data["merges"][start:stop])
+    #     print(merges[start:stop])
+    #     # assert data["merges"][start:stop] == merges[start:stop]
+    #     left = data["merges"][:start] + data["merges"][stop:]
+    #     right = merges[:start] + merges[stop:]
+    #     assert left == right

@@ -52,6 +52,8 @@ class BPETokenizer():
         self.pairsInHeap = set()
         self.h = []
         self.whereIsPair = defaultdict(lambda: set())
+        self.tokenFreq = defaultdict(lambda: 0)
+
 
         self.tokenMap[special_token_bytes] = 0
         self.tokenMapInt[0] = special_token_bytes
@@ -108,20 +110,18 @@ class BPETokenizer():
         #find the max one.
         #join those two at all positions
         #add these two the result.
-        
-        freq = defaultdict(lambda: 0)
-        
+
         for word_tuple, count in self.wordCount.items():
             n = len(word_tuple)
             for i in range(n-1):
                 pair = (word_tuple[i], word_tuple[i+1])
-                freq[pair] += count
+                self.tokenFreq[pair] += count
                 self.whereIsPair[pair].add(word_tuple)
 
-        for pair, count in freq.items():
+        for pair, count in self.tokenFreq.items():
             heapq.heappush(self.h, TokenPair(count, pair))
             self.pairsInHeap.add(pair)
-        
+
         tokenCountsChanged = defaultdict(lambda: 0)
 
         k = 0
@@ -138,6 +138,7 @@ class BPETokenizer():
                 heapq.heappush(self.h, TokenPair(updated_count, tokenPair))
 
             # print("\n\nnext...")
+            self.tokenFreq[tokenPair] = largest
             tokenPairJoined = tokenPair[0] + tokenPair[1]
             # print(largest, tokenPair, tokenPairJoined)
 
@@ -238,8 +239,8 @@ class BPETokenizer():
 
 
 params = {
-    "input_path": "src/resources/example.txt",
-    "vocab_size": 262,
+    "input_path": "tests/fixtures/tinystories_sample_5M.txt",
+    "vocab_size": 1000,
     "special_tokens": [
         "<|endoftext|>"
     ]
@@ -247,4 +248,20 @@ params = {
 
 tokenizer = BPETokenizer(**params)
 tokenizer.train_bpe()
+print(tokenizer.tokenFreq[(b"\n", b"\n")])
+print(tokenizer.tokenFreq[(b" g", b"ive")])
 # tokenizer._print_word_count()
+
+# import pickle
+# with open("tests/_snapshots/test_train_bpe_special_tokens.pkl", "rb") as f:
+#     data = pickle.load(f)
+#     print(len(data["merges"]))
+
+# import re
+# with open("tests/fixtures/tinystories_sample_5M.txt", "r") as f:
+#     content = f.read()
+#     matches1 = re.findall(r" give", content)
+#     print(" give", len(matches1))
+#     matches2 = re.findall(r"\n\n", content)
+#     print("newline", len(matches2))
+
