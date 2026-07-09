@@ -3,8 +3,11 @@ from typing import Any
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 import regex
 from collections import defaultdict
-from multiprocessing import Pool, get_context
+from multiprocessing import get_context
 import heapq
+import pickle
+import time
+
 
 class TokenPair():
     def __init__(self, count: int, pair: tuple[bytes, bytes]):
@@ -283,21 +286,34 @@ class BPETokenizer():
         # print("changes:", tokenCountsChanged)
 
 if __name__ == "__main__":
-    params = {
-        "input_path": "tests/fixtures/tinystories_sample_5M.txt",
-        "vocab_size": 1000,
-        "special_tokens": [
-            "<|endoftext|>"
-        ]
-    }
+    n = 10
+    for i in range(1, n):
+        start = time.perf_counter()
+        params = {
+            "input_path": "tests/fixtures/tinystories_sample_5M.txt",
+            "vocab_size": 1000,
+            "special_tokens": [
+                "<|endoftext|>"
+            ],
+            "num_processes": i
+        }
 
-    tokenizer = BPETokenizer(**params)
-    tokenizer.train_bpe()
-    print(tokenizer.tokenFreq[(b"\n", b"\n")])
-    print(tokenizer.tokenFreq[(b" g", b"ive")])
+        tokenizer = BPETokenizer(**params)
+        tokenmap, merges = tokenizer.train_bpe()
+ 
+        end = time.perf_counter()
+        print(f"elapsed time with {i} processes = {end - start:.4f} seconds")
+
+        with open(f"src/resources/vocab_{i}.pkl", "wb") as f:
+            pickle.dump({
+                "tokenmap": tokenmap,
+                "merges": merges
+            }, f)
+ 
+    # print(tokenizer.tokenFreq[(b"\n", b"\n")])
+    # print(tokenizer.tokenFreq[(b" g", b"ive")])
     # tokenizer._print_word_count()
 
-    # import pickle
     # with open("tests/_snapshots/test_train_bpe_special_tokens.pkl", "rb") as f:
     #     data = pickle.load(f)
     #     print(len(data["merges"]))
