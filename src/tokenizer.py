@@ -103,7 +103,13 @@ class Tokenizer():
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         #the idea, is to keep reading tokens. if you get a token that cannot be merged,
         #then you yield the previous one
-        pass
+        for text in iterable:
+            for match in self.PreTokenizer.finditer(text):
+                phrase = match.group()
+                phrase_ids = self._encode_brute_force(phrase)
+                for id in phrase_ids:
+                    yield id
+
 
     def decode(self, ids: list[int]) -> str:
         ids_bytes = [self.tokenIntMap[x] for x in ids]
@@ -114,7 +120,6 @@ tokenizer = Tokenizer.from_files(
                 vocab_filepath="src/resources/vocab_next_50.pkl",
                 merges_filepath="src/resources/vocab_next_50.pkl"
             )
-
 
 examples = [
     "hello",
