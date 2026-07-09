@@ -82,7 +82,8 @@ class Tokenizer():
         pass
 
     def decode(self, ids: list[int]) -> str:
-        pass
+        ids_bytes = [self.tokenIntMap[x] for x in ids]
+        return b''.join(ids_bytes).decode("utf-8")
 
 
 tokenizer = Tokenizer.from_files(
@@ -90,7 +91,16 @@ tokenizer = Tokenizer.from_files(
                 merges_filepath="src/resources/vocab_next_50.pkl"
             )
 
-print(tokenizer.encode("hello"))
-print(tokenizer.encode("world"))
-print(tokenizer.encode("whats going on"))
-print(tokenizer.encode("these days"))
+
+examples = [
+    "hello",
+    "world",
+    "whats going on",
+    "these days"
+]
+
+for e in examples:
+    encoded = tokenizer.encode(e)
+    decoded = tokenizer.decode(encoded)
+    print(e, encoded, decoded)
+    assert e == decoded
