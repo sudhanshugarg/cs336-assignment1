@@ -58,14 +58,20 @@ class BPETokenizer():
         special_token_bytes = self.special_tokens[0].encode("utf-8")
         special_token_regex = regex.escape(self.special_tokens[0])
         self.regex_string = r"""'(?:[sdmt]|ll|ve|re)| ?""" + special_token_regex + r"""| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        # self.regex_string = (
+        #    r"""'(?:[sdmt]|ll|ve|re)|"""
+        #    + special_token_regex +
+        #    r"""| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        # )
         # print(regex_string)
         self.PAT = regex.compile(self.regex_string)
 
+        print(f"got num processes as: {self.num_processes}")
 
         with open(self.input_path, "rb") as f:
             self.boundaries = find_chunk_boundaries(f, self.num_processes, special_token_bytes)
         
-        # print(self.boundaries)
+        print(self.boundaries)
 
         self.wordCount = defaultdict(int)
         self.merges = []
@@ -143,7 +149,7 @@ class BPETokenizer():
                 # chunks.append(args)
                 chunks_small.append((chunk,))
                 
-        with ctx.Pool(processes=2) as pool:
+        with ctx.Pool(processes=self.num_processes) as pool:
             # results = pool.starmap(bpe_read_chunk, chunks)
             results = pool.starmap(self._read_chunk, chunks_small)
 
@@ -286,12 +292,11 @@ class BPETokenizer():
         # print("changes:", tokenCountsChanged)
 
 if __name__ == "__main__":
-    n = 10
-    for i in range(1, n):
+    for i in (50, 100, 200):
         start = time.perf_counter()
         params = {
-            "input_path": "tests/fixtures/tinystories_sample_5M.txt",
-            "vocab_size": 1000,
+            "input_path": "src/resources/tinystories_full.bin",
+            "vocab_size": 10000,
             "special_tokens": [
                 "<|endoftext|>"
             ],
@@ -304,30 +309,29 @@ if __name__ == "__main__":
         end = time.perf_counter()
         print(f"elapsed time with {i} processes = {end - start:.4f} seconds")
 
-        with open(f"src/resources/vocab_{i}.pkl", "wb") as f:
+        with open(f"src/resources/vocab_next_{i}.pkl", "wb") as f:
             pickle.dump({
                 "tokenmap": tokenmap,
                 "merges": merges
             }, f)
- 
-    # print(tokenizer.tokenFreq[(b"\n", b"\n")])
-    # print(tokenizer.tokenFreq[(b" g", b"ive")])
-    # tokenizer._print_word_count()
 
-    # with open("tests/_snapshots/test_train_bpe_special_tokens.pkl", "rb") as f:
-    #     data = pickle.load(f)
-    #     print(len(data["merges"]))
 
-    # import re
-    # with open("tests/fixtures/tinystories_sample_5M.txt", "r") as f:
-    #     content = f.read()
-    #     matches1 = re.findall(r" give", content)
-    #     print(" give", len(matches1))
-    #     matches2 = re.findall(r"\n\n", content)
-    #     print("newline", len(matches2))
+    i = 50
+    with open(f"src/resources/vocab_next_{i}.pkl", "rb") as f:
+        data = pickle.load(f)
+        # print(len(data["merges"]))
 
-    # from datasets import load_dataset
+    for i in (100, 200):
+        print(f"testing {i}")
+        with open(f"src/resources/vocab_next_{i}.pkl", "rb") as f:
+            data2 = pickle.load(f)
+            values1 = list(data["tokenmap"].values())
+            values2 = list(data2["tokenmap"].values())
+            i = 316
+            start = i
+            print(values1[i-3:i+8])
+            print(values2[i-3:i+8])
 
-    # ds = load_dataset("roneneldan/TinyStories")
-    # ds2 = load_dataset("Skylion007/openwebtext")
-
+            assert set(data["tokenmap"].keys()) == set(data2["tokenmap"].keys())
+            assert set(data["tokenmap"].values()) == set(data2["tokenmap"].values())
+            assert set(data["merges"]) == set(data2["merges"])
