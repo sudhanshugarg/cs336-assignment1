@@ -292,11 +292,11 @@ class BPETokenizer():
         # print("changes:", tokenCountsChanged)
 
 if __name__ == "__main__":
-    for i in (50, 100, 200):
+    for i in (10, 20, 30, 40):
         start = time.perf_counter()
         params = {
             "input_path": "src/resources/tinystories_full.bin",
-            "vocab_size": 10000,
+            "vocab_size": 128000,
             "special_tokens": [
                 "<|endoftext|>"
             ],

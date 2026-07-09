@@ -4,7 +4,7 @@ import heapq
 import pickle
 import os
 
-class Tokenizer(ABC):
+class Tokenizer_V1(ABC):
     padding_token = "<PAD>"
     padding_token_int = 0
 

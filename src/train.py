@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from transformer import Transformer
-from tokenizer import Tokenizer
+from tokenizer import Tokenizer_V1
 from dataset import TextFileReader
 import wandb
 from datetime import datetime
@@ -23,7 +23,7 @@ params = {
 wandb_log = True
 
 
-def get_tensor(tokenizer: Tokenizer, x: list[str]) -> torch.Tensor:
+def get_tensor(tokenizer: Tokenizer_V1, x: list[str]) -> torch.Tensor:
     tokens = tokenizer.tokenize(x, seq_length=seq_length)
     token_ints = []
     for token_str, token_int in tokens:
@@ -39,7 +39,7 @@ def train_step(it: int, model: nn.Module, x: torch.Tensor, y: torch.Tensor):
     #we only take losses from y, for non-padded positions.
     eps = 1e-8
 
-    label_mask = (y != Tokenizer.padding_token_int) * 1
+    label_mask = (y != Tokenizer_V1.padding_token_int) * 1
     # print(label_mask)
     losses = probs[torch.arange(logits.shape[0])[:, None], torch.arange(logits.shape[1])[None, :], y]
     losses = losses * label_mask
@@ -69,7 +69,7 @@ def train(max_steps: int):
     file_name = "input.txt"
     file_path = f"src/resources/{file_name}"
     tokenizer_path = f"src/resources/tokenizer_{file_name}_{params['vocab_size']}.pkl"
-    tokenizer = Tokenizer(file_path, tokenizer_path, vocab_size=params["vocab_size"], overwrite=False)
+    tokenizer = Tokenizer_V1(file_path, tokenizer_path, vocab_size=params["vocab_size"], overwrite=False)
     # tokenizer.tokenize()
 
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
@@ -136,7 +136,7 @@ def eval_model(model: nn.Module):
     #continue forever
     start = "Julius how goes it. it has been a while since you met cleo. All good "
     tokenizer_path = f"src/resources/tokenizer_input.txt_{params['vocab_size']}.pkl"
-    tokenizer = Tokenizer(corpus_file_path="", tokenizer_path=tokenizer_path, vocab_size=params["vocab_size"])
+    tokenizer = Tokenizer_V1(corpus_file_path="", tokenizer_path=tokenizer_path, vocab_size=params["vocab_size"])
 
     max_length = 50
     tokens, token_ints = tokenizer.tokenize([start], seq_length=seq_length)[0]

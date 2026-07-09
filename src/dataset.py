@@ -1,9 +1,9 @@
 import torch
 from torch.utils.data import Dataset
-from tokenizer import Tokenizer
+from tokenizer import Tokenizer_V1
 
 class TextFileReader(Dataset):
-    def __init__(self, path: str, tokenizer: Tokenizer, seq_length: int = 32):
+    def __init__(self, path: str, tokenizer: Tokenizer_V1, seq_length: int = 32):
         self.seq_length = seq_length
         self.tokenizer = tokenizer
 
