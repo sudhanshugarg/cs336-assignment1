@@ -1,21 +1,33 @@
 from typing import Iterable, Iterator
 import pickle
-import heapq
+import regex
 
 class Tokenizer():
+    PreTokenizer = regex.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+
     def __init__(self, 
                  vocab: dict[int, bytes], 
                  merges: list[tuple[bytes, bytes]], 
                  special_tokens: list[str] | None = None):
         self.tokenIntMap = vocab
         self.merges = merges
-        if special_tokens:
-            self.special_tokens = set(special_tokens)
 
         self.tokenMap: dict[bytes, int] = {}
         self._process_vocab()
         self.priority = {}
         self._process_merges()
+
+        self.special_tokens = special_tokens
+        if special_tokens:
+            #find next vocab index that can be used
+            next_index = max(self.tokenIntMap.keys()) + 1
+            self.special_tokens = set(special_tokens)
+            for special_token in self.special_tokens:
+                special_token_bytes = special_token.encode("utf-8")
+                if special_token_bytes not in self.tokenMap:
+                    self.tokenMap[special_token_bytes] = next_index
+                    self.tokenIntMap[next_index] = special_token_bytes
+                    next_index += 1
 
     def _process_vocab(self):
         for key, value in self.tokenIntMap.items():
@@ -38,6 +50,16 @@ class Tokenizer():
             merges = data["merges"]
 
         return cls(tokenIntMap, merges, special_tokens)
+
+    def _encode_long_string(self, text) -> list[int]:
+        # TODO split by special tokens
+        encoded_array = []
+        for match in self.PreTokenizer.finditer(text):
+            small_phrase = match.group()
+            small_phrase_encoded = self._encode_brute_force(small_phrase)
+            print(small_phrase, small_phrase_encoded)
+            encoded_array.extend(small_phrase_encoded)
+        return encoded_array
 
     def _encode_brute_force(self, text) -> list[int]:
         byte_int_array = list(text.encode("utf-8"))
@@ -76,9 +98,11 @@ class Tokenizer():
         return result
 
     def encode(self, text) -> list[int]:
-        return self._encode_brute_force(text)
+        return self._encode_long_string(text)
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        #the idea, is to keep reading tokens. if you get a token that cannot be merged,
+        #then you yield the previous one
         pass
 
     def decode(self, ids: list[int]) -> str:
@@ -96,11 +120,12 @@ examples = [
     "hello",
     "world",
     "whats going on",
-    "these days"
+    "these days supercalifragilisticexpialidocisous organiziatioal troubles allover thesemondaytuesdayand friadys"
 ]
 
 for e in examples:
+    print("\nstarting with: ", e)
     encoded = tokenizer.encode(e)
     decoded = tokenizer.decode(encoded)
-    print(e, encoded, decoded)
+    # print(e, encoded, decoded)
     assert e == decoded
