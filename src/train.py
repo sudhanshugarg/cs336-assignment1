@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from transformer import Transformer
-from tokenizer import Tokenizer_V1
+from tokenizer_v1 import Tokenizer_V1
 from dataset import TextFileReader
 import wandb
 from datetime import datetime
