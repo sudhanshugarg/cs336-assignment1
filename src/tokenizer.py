@@ -57,7 +57,7 @@ class Tokenizer():
         for match in self.PreTokenizer.finditer(text):
             small_phrase = match.group()
             small_phrase_encoded = self._encode_brute_force(small_phrase)
-            print(small_phrase, small_phrase_encoded)
+            # print(small_phrase, small_phrase_encoded)
             encoded_array.extend(small_phrase_encoded)
         return encoded_array
 
@@ -116,21 +116,21 @@ class Tokenizer():
         return b''.join(ids_bytes).decode("utf-8")
 
 
-tokenizer = Tokenizer.from_files(
-                vocab_filepath="src/resources/vocab_next_50.pkl",
-                merges_filepath="src/resources/vocab_next_50.pkl"
-            )
+# tokenizer = Tokenizer.from_files(
+#                 vocab_filepath="src/resources/vocab_next_50.pkl",
+#                 merges_filepath="src/resources/vocab_next_50.pkl"
+#             )
 
-examples = [
-    "hello",
-    "world",
-    "whats going on",
-    "these days supercalifragilisticexpialidocisous organiziatioal troubles allover thesemondaytuesdayand friadys"
-]
+# examples = [
+#     "hello",
+#     "world",
+#     "whats going on",
+#     "these days supercalifragilisticexpialidocisous organiziatioal troubles allover thesemondaytuesdayand friadys"
+# ]
 
-for e in examples:
-    print("\nstarting with: ", e)
-    encoded = tokenizer.encode(e)
-    decoded = tokenizer.decode(encoded)
-    # print(e, encoded, decoded)
-    assert e == decoded
+# for e in examples:
+#     print("\nstarting with: ", e)
+#     encoded = tokenizer.encode(e)
+#     decoded = tokenizer.decode(encoded)
+#     # print(e, encoded, decoded)
+#     assert e == decoded
