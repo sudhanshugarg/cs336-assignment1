@@ -1,9 +1,23 @@
 from typing import Iterable, Iterator
 import pickle
 import regex
+from functools import cmp_to_key
 
 class Tokenizer():
     PreTokenizer = regex.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+
+    def token_sort(self, word1, word2):
+        if word1 == word2:
+            return 0
+
+        if word1.startswith(word2):
+            return -1
+        elif word2.startswith(word1):
+            return 1
+
+        if word1 < word2:
+            return -1
+        return 1
 
     def __init__(self, 
                  vocab: dict[int, bytes], 
@@ -19,6 +33,8 @@ class Tokenizer():
 
         self.special_tokens = set()
         if special_tokens:
+            special_tokens.sort(key=cmp_to_key(self.token_sort))
+            print(special_tokens)
             #() braces to ensure that the special tokens are also covered
             self.special_tokens_regex = f"({"|".join([regex.escape(x) for x in special_tokens])})"
 
@@ -57,7 +73,6 @@ class Tokenizer():
     def _encode_long_string(self, text) -> list[int]:
         if self.special_tokens:
             texts = regex.split(self.special_tokens_regex, text)
-            print(texts)
         else:
             texts = [text]
 
@@ -71,6 +86,22 @@ class Tokenizer():
                     small_phrase_encoded = self._encode_brute_force(small_phrase)
                     encoded_array.extend(small_phrase_encoded)
         return encoded_array
+
+    def _encode_long_string_generator(self, text) -> Iterator[int]:
+        if self.special_tokens:
+            texts = regex.split(self.special_tokens_regex, text)
+        else:
+            texts = [text]
+
+        for text in texts:
+            if text in self.special_tokens:
+                yield self.tokenMap[text.encode("utf-8")]
+            else:
+                for match in self.PreTokenizer.finditer(text):
+                    small_phrase = match.group()
+                    small_phrase_encoded = self._encode_brute_force(small_phrase)
+                    for small_phrase_int in small_phrase_encoded:
+                        yield small_phrase_int
 
     def _encode_brute_force(self, text) -> list[int]:
         byte_int_array = list(text.encode("utf-8"))
@@ -115,11 +146,8 @@ class Tokenizer():
         #the idea, is to keep reading tokens. if you get a token that cannot be merged,
         #then you yield the previous one
         for text in iterable:
-            for match in self.PreTokenizer.finditer(text):
-                phrase = match.group()
-                phrase_ids = self._encode_brute_force(phrase)
-                for id in phrase_ids:
-                    yield id
+            res:Iterator[int] = self._encode_long_string_generator(text)
+            yield from res
 
 
     def decode(self, ids: list[int]) -> str:
