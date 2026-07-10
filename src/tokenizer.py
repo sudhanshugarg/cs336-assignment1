@@ -19,6 +19,8 @@ class Tokenizer():
 
         self.special_tokens = special_tokens
         if special_tokens:
+            self.special_tokens_regex = "|".join([regex.escape(x) for x in special_tokens])
+
             #find next vocab index that can be used
             next_index = max(self.tokenIntMap.keys()) + 1
             self.special_tokens = set(special_tokens)
@@ -52,13 +54,20 @@ class Tokenizer():
         return cls(tokenIntMap, merges, special_tokens)
 
     def _encode_long_string(self, text) -> list[int]:
-        # TODO split by special tokens
+        if self.special_tokens:
+            texts = regex.split(self.special_tokens_regex, text)
+            print(texts)
+        else:
+            texts = [text]
+        
+        # return []
         encoded_array = []
-        for match in self.PreTokenizer.finditer(text):
-            small_phrase = match.group()
-            small_phrase_encoded = self._encode_brute_force(small_phrase)
-            # print(small_phrase, small_phrase_encoded)
-            encoded_array.extend(small_phrase_encoded)
+        for text in texts:
+            for match in self.PreTokenizer.finditer(text):
+                small_phrase = match.group()
+                small_phrase_encoded = self._encode_brute_force(small_phrase)
+                # print(small_phrase, small_phrase_encoded)
+                encoded_array.extend(small_phrase_encoded)
         return encoded_array
 
     def _encode_brute_force(self, text) -> list[int]:
@@ -116,21 +125,23 @@ class Tokenizer():
         return b''.join(ids_bytes).decode("utf-8")
 
 
-# tokenizer = Tokenizer.from_files(
-#                 vocab_filepath="src/resources/vocab_next_50.pkl",
-#                 merges_filepath="src/resources/vocab_next_50.pkl"
-#             )
+tokenizer = Tokenizer.from_files(
+                vocab_filepath="src/resources/vocab_next_50.pkl",
+                merges_filepath="src/resources/vocab_next_50.pkl",
+                special_tokens=["<|hey|>"]
+            )
 
-# examples = [
-#     "hello",
-#     "world",
-#     "whats going on",
-#     "these days supercalifragilisticexpialidocisous organiziatioal troubles allover thesemondaytuesdayand friadys"
-# ]
+examples = [
+    "thesemondaytuesdayand<|hey|>what<|hey|><|hey|>no oneis there",
+    "thesemondaytuesdayand",
+    "<|hey|>"
+    # " troubles allover thesemondaytuesdayand friadys",
+    # "these days supercalifragilisticexpialidocisous organiziatioal"
+]
 
-# for e in examples:
-#     print("\nstarting with: ", e)
-#     encoded = tokenizer.encode(e)
-#     decoded = tokenizer.decode(encoded)
-#     # print(e, encoded, decoded)
-#     assert e == decoded
+for e in examples:
+    print("\nstarting with: ", e)
+    encoded = tokenizer.encode(e)
+    decoded = tokenizer.decode(encoded)
+    print("result: ", encoded, decoded)
+    # assert e == decoded

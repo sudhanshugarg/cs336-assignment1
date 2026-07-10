@@ -561,11 +561,7 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    return Tokenizer.from_files(
-        vocab_filepath="src/resources/vocab_next_10.pkl",
-        merges_filepath="src/resources/vocab_next_10.pkl",
-        special_tokens=["<|endoftext|>"]
-    )
+    return Tokenizer(vocab=vocab, merges=merges, special_tokens=special_tokens)
 
 
 def run_train_bpe(
