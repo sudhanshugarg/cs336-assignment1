@@ -59,14 +59,12 @@ class Tokenizer():
             print(texts)
         else:
             texts = [text]
-        
-        # return []
+
         encoded_array = []
         for text in texts:
             for match in self.PreTokenizer.finditer(text):
                 small_phrase = match.group()
                 small_phrase_encoded = self._encode_brute_force(small_phrase)
-                # print(small_phrase, small_phrase_encoded)
                 encoded_array.extend(small_phrase_encoded)
         return encoded_array
 
@@ -122,26 +120,26 @@ class Tokenizer():
 
     def decode(self, ids: list[int]) -> str:
         ids_bytes = [self.tokenIntMap[x] for x in ids]
-        return b''.join(ids_bytes).decode("utf-8")
+        return b''.join(ids_bytes).decode("utf-8", errors="replace")
 
 
-tokenizer = Tokenizer.from_files(
-                vocab_filepath="src/resources/vocab_next_50.pkl",
-                merges_filepath="src/resources/vocab_next_50.pkl",
-                special_tokens=["<|hey|>"]
-            )
+# tokenizer = Tokenizer.from_files(
+#                 vocab_filepath="src/resources/vocab_next_50.pkl",
+#                 merges_filepath="src/resources/vocab_next_50.pkl",
+#                 special_tokens=["<|hey|>"]
+#             )
 
-examples = [
-    "thesemondaytuesdayand<|hey|>what<|hey|><|hey|>no oneis there",
-    "thesemondaytuesdayand",
-    "<|hey|>"
-    # " troubles allover thesemondaytuesdayand friadys",
-    # "these days supercalifragilisticexpialidocisous organiziatioal"
-]
+# examples = [
+#     "thesemondaytuesdayand<|hey|>what<|hey|><|hey|>no oneis there",
+#     "thesemondaytuesdayand",
+#     "<|hey|>"
+#     # " troubles allover thesemondaytuesdayand friadys",
+#     # "these days supercalifragilisticexpialidocisous organiziatioal"
+# ]
 
-for e in examples:
-    print("\nstarting with: ", e)
-    encoded = tokenizer.encode(e)
-    decoded = tokenizer.decode(encoded)
-    print("result: ", encoded, decoded)
-    # assert e == decoded
+# for e in examples:
+#     print("\nstarting with: ", e)
+#     encoded = tokenizer.encode(e)
+#     decoded = tokenizer.decode(encoded)
+#     print("result: ", encoded, decoded)
+#     # assert e == decoded
