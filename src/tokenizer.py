@@ -17,9 +17,10 @@ class Tokenizer():
         self.priority = {}
         self._process_merges()
 
-        self.special_tokens = special_tokens
+        self.special_tokens = set()
         if special_tokens:
-            self.special_tokens_regex = "|".join([regex.escape(x) for x in special_tokens])
+            #() braces to ensure that the special tokens are also covered
+            self.special_tokens_regex = f"({"|".join([regex.escape(x) for x in special_tokens])})"
 
             #find next vocab index that can be used
             next_index = max(self.tokenIntMap.keys()) + 1
@@ -62,10 +63,13 @@ class Tokenizer():
 
         encoded_array = []
         for text in texts:
-            for match in self.PreTokenizer.finditer(text):
-                small_phrase = match.group()
-                small_phrase_encoded = self._encode_brute_force(small_phrase)
-                encoded_array.extend(small_phrase_encoded)
+            if text in self.special_tokens:
+                encoded_array.append(self.tokenMap[text.encode("utf-8")])
+            else:
+                for match in self.PreTokenizer.finditer(text):
+                    small_phrase = match.group()
+                    small_phrase_encoded = self._encode_brute_force(small_phrase)
+                    encoded_array.extend(small_phrase_encoded)
         return encoded_array
 
     def _encode_brute_force(self, text) -> list[int]:
