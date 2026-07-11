@@ -279,12 +279,14 @@ class BPETokenizer():
         # print("changes:", tokenCountsChanged)
 
 if __name__ == "__main__":
-    num_processes = (10, 20, 30, 40)
+    num_processes = (200, 300)
+    vocab_size = 32000
+    dataset_name = "openwebtext"
     for i in num_processes:
         start = time.perf_counter()
         params = {
-            "input_path": "src/resources/tinystories_full.bin",
-            "vocab_size": 128000,
+            "input_path": f"src/resources/{dataset_name}_sample_0.bin",
+            "vocab_size": vocab_size,
             "special_tokens": [
                 "<|endoftext|>"
             ],
@@ -297,7 +299,7 @@ if __name__ == "__main__":
         end = time.perf_counter()
         print(f"elapsed time with {i} processes = {end - start:.4f} seconds")
 
-        with open(f"src/resources/tinystories_vocab_{i}.pkl", "wb") as f:
+        with open(f"src/resources/{dataset_name}_vocab_{vocab_size}_{i}.pkl", "wb") as f:
             pickle.dump({
                 "tokenmap": tokenmap,
                 "merges": merges
@@ -305,14 +307,14 @@ if __name__ == "__main__":
 
 
     i = num_processes[0]
-    with open(f"src/resources/tinystories_vocab_{i}.pkl", "rb") as f:
+    with open(f"src/resources/{dataset_name}_vocab_{vocab_size}_{i}.pkl", "rb") as f:
         data = pickle.load(f)
         # print(len(data["merges"]))
 
     for j in range(1, len(num_processes)):
         i = num_processes[j]
         print(f"testing {i}")
-        with open(f"src/resources/tinystories_vocab_{i}.pkl", "rb") as f:
+        with open(f"src/resources/{dataset_name}_vocab_{vocab_size}_{i}.pkl", "rb") as f:
             data2 = pickle.load(f)
             values1 = list(data["tokenmap"].values())
             values2 = list(data2["tokenmap"].values())
