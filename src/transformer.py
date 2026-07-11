@@ -170,16 +170,10 @@ class CausalSelfAttention(nn.Module):
         assert(self.n_heads > 0 and self.token_dim % self.n_heads == 0)
         self.head_dim = self.token_dim // self.n_heads
 
-        self.Q = nn.Parameter(torch.empty(self.token_dim, self.token_dim))
-        self.K = nn.Parameter(torch.empty(self.token_dim, self.token_dim))
-        self.V = nn.Parameter(torch.empty(self.token_dim, self.token_dim))
-        self.up_proj = nn.Parameter(torch.empty(self.token_dim, self.token_dim))
-
-        sigma = 2.0 / (2.0 * math.sqrt(self.token_dim))
-        init.trunc_normal_(self.Q, mean=0.0, std=sigma, a=-3.0 * sigma, b=3.0 * sigma)
-        init.trunc_normal_(self.K, mean=0.0, std=sigma, a=-3.0 * sigma, b=3.0 * sigma)
-        init.trunc_normal_(self.V, mean=0.0, std=sigma, a=-3.0 * sigma, b=3.0 * sigma)
-        init.trunc_normal_(self.up_proj, mean=0.0, std=sigma, a=-3.0 * sigma, b=3.0 * sigma)
+        self.Q = Linear2(self.token_dim, self.token_dim)
+        self.K = Linear2(self.token_dim, self.token_dim)
+        self.V = Linear2(self.token_dim, self.token_dim)
+        self.up_proj = Linear2(self.token_dim, self.token_dim)
 
 
     def _upper_triangular(self, n: int) -> torch.Tensor:
@@ -192,11 +186,11 @@ class CausalSelfAttention(nn.Module):
         b, seq, tok = x.shape
         assert(tok == self.token_dim)
 
-        q = torch.matmul(x, self.Q) #b, seq, tok_dim
+        q = self.Q(x) #b, seq, tok_dim
         q = q.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
-        k = torch.matmul(x, self.Q) #b, seq, tok_dim
+        k = self.K(x) #b, seq, tok_dim
         k = k.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
-        v = torch.matmul(x, self.V)
+        v = self.V(x)
         v = v.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
 
         attention = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim) #b, n_heads, seq, seq
@@ -208,7 +202,7 @@ class CausalSelfAttention(nn.Module):
 
         result = torch.matmul(attention_softmax, v) #b, n_heads, seq, head_dim
         result = result.transpose(1, 2).reshape(b, seq, self.token_dim)
-        return torch.matmul(result, self.up_proj)
+        return self.up_proj(result)
 
 
 class LayerNorm(nn.Module):
@@ -229,6 +223,17 @@ class LayerNorm(nn.Module):
         return (((x - mu) / (sigma + self.eps)) * self.gamma) + self.beta
 
 
+class TokenEmbedding(nn.Module):
+    def __init__(self, num_embeddings: int, embeddings_dim: int, device=None, dtype=None):
+        super().__init__()
+        self.mapping = nn.Parameter(torch.empty(num_embeddings, embeddings_dim, device=device, dtype=dtype))
+        init.trunc_normal_(self.mapping, mean=0.0, std=1.0, a=-3.0, b=3.0)
+
+    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+        # token_ids.shape = [..., d] where we have d integers
+        return self.mapping[token_ids]
+
+
 class Transformer(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
@@ -238,8 +243,7 @@ class Transformer(nn.Module):
         self.endecoder_layers = kwargs.pop("endecoder_layers")
         self.seq_length = kwargs.pop("seq_length")
 
-        self.tokenEmbeddings = nn.Parameter(torch.empty(self.vocab_size, self.token_dim))
-        init.trunc_normal_(self.tokenEmbeddings, mean=0.0, std=1.0, a=-3.0, b=3.0)
+        self.tokenEmbeddings = TokenEmbedding(num_embeddings=self.vocab_size, embeddings_dim=self.token_dim)
         self.ln = LayerNorm(dim=self.token_dim)
 
         self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
@@ -276,7 +280,7 @@ class Transformer(nn.Module):
         #TODO create the input mask
         #padding token also gets learnt, but is useless.
         # print(x)
-        y = self.tokenEmbeddings[x] #b, seq, token_dim
+        y = self.tokenEmbeddings(x) #b, seq, token_dim
         y = y + self.sinusoidalPositionalEmbeddings #seq, token_dim
 
         for i in range(self.endecoder_layers):
@@ -285,7 +289,7 @@ class Transformer(nn.Module):
         #need one more layernorm at the end. Each of the endecoder layers does its own pre-ln.
         y = self.ln(y)
         #now, need to convert the output, back into tokens
-        output_token_logits = y @ self.tokenEmbeddings.T #b, seq, vocab_size
+        output_token_logits = y @ self.tokenEmbeddings.mapping.T #b, seq, vocab_size
         output_token_probs = Utils.stable_softmax(output_token_logits)
 
         return output_token_logits, output_token_probs
@@ -293,17 +297,21 @@ class Transformer(nn.Module):
 
         
 
-# torch.manual_seed(157)
-# params = {
-#     "vocab_size": 6,
-#     "token_dim": 4,
-#     "endecoder_layers": 2
-# }
-# t = Transformer(**params)
-# input = torch.tensor([
-#     [0, 1],
-#     [1, 2],
-#     [0, 3],
-# ])
+torch.manual_seed(157)
+params = {
+    "vocab_size": 6,
+    "token_dim": 4,
+    "endecoder_layers": 2,
+    "seq_length": 2,
+    "n_heads": 1,
+    "mlp_hidden_layers": 2,
+    "mlp_hidden_layer_dim": 4
+}
+t = Transformer(**params)
+input = torch.tensor([
+    [0, 1],
+    [1, 2],
+    [0, 3],
+])
 
-# print(t(input))
+print(t(input))
