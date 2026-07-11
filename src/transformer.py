@@ -125,13 +125,15 @@ class MLP(nn.Module):
 
         self.layers = []
         if self.hidden_layers <= 0:
-            layer = Linear(**{"input_dim": self.token_dim, "output_dim": self.token_dim})
+            # layer = Linear(**{"input_dim": self.token_dim, "output_dim": self.token_dim})
+            layer = Linear2(in_features=self.token_dim, out_features=self.token_dim)
             # layer = nn.Parameter(torch.empty(self.token_dim, self.token_dim))
             # self.init_layer(layer)
             self.layers.append(layer)
         else:
             # layer = nn.Parameter(torch.empty(self.token_dim, self.hidden_layer_dim))
-            layer = Linear(**{"input_dim": self.token_dim, "output_dim": self.hidden_layer_dim})
+            # layer = Linear(**{"input_dim": self.token_dim, "output_dim": self.hidden_layer_dim})
+            layer = Linear2(in_features=self.token_dim, out_features=self.hidden_layer_dim)
             # self.init_layer(layer)
             self.layers.append(layer)
             self.layers.append(HomeReLU())
@@ -139,20 +141,15 @@ class MLP(nn.Module):
             for i in range(self.hidden_layers-1):
                 # layer = nn.Parameter(torch.empty(self.hidden_layer_dim, self.hidden_layer_dim))
                 # self.init_layer(layer)
-                layer = Linear(**{"input_dim": self.hidden_layer_dim, "output_dim": self.hidden_layer_dim})
+                # layer = Linear(**{"input_dim": self.hidden_layer_dim, "output_dim": self.hidden_layer_dim})
+                layer = Linear2(in_features=self.hidden_layer_dim, out_features=self.hidden_layer_dim)
                 self.layers.append(layer)
                 self.layers.append(HomeReLU())
             # layer = nn.Parameter(torch.empty(self.hidden_layer_dim, self.token_dim))
             # self.init_layer(layer)
-            layer = Linear(**{"input_dim": self.hidden_layer_dim, "output_dim": self.token_dim})
+            # layer = Linear(**{"input_dim": self.hidden_layer_dim, "output_dim": self.token_dim})
+            layer = Linear2(in_features=self.hidden_layer_dim, out_features=self.token_dim)
             self.layers.append(layer)
-
-
-    def init_layer(self, layer: nn.Parameter) -> None:
-        dim0, dim1 = layer.shape
-        sigma = 2.0 / (dim0 + dim1)
-        init.trunc_normal_(layer, mean=0.0, std=sigma, a=-3.0*sigma, b=3.0*sigma)
-
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         for i in range(len(self.layers)):
