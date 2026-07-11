@@ -219,6 +219,23 @@ class LayerNorm(nn.Module):
         sigma = torch.std(x, dim=-1, keepdim=True)
         return (((x - mu) / (sigma + self.eps)) * self.gamma) + self.beta
 
+class RMSNorm(nn.Module):
+    def __init__(self, d_model: int, eps: float = 1e-5, device=None, dtype=None) -> None:
+        super().__init__()
+        self.gamma = nn.Parameter(torch.empty(d_model, device=device, dtype=dtype))
+        init.trunc_normal_(self.gamma, mean=0, std=1.0, a=-2.0, b=2.0)
+        self.d_model = d_model
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.shape[-1] == self.d_model
+        in_dtype = x.dtype
+        x = x.to(torch.float32)
+        #what is rms norm
+        denominator = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
+        return ((x / denominator) * self.gamma).to(in_dtype)
+
+
 
 class TokenEmbedding(nn.Module):
     def __init__(self, num_embeddings: int, embeddings_dim: int, device=None, dtype=None):
@@ -294,21 +311,21 @@ class Transformer(nn.Module):
 
         
 
-torch.manual_seed(157)
-params = {
-    "vocab_size": 6,
-    "token_dim": 4,
-    "endecoder_layers": 2,
-    "seq_length": 2,
-    "n_heads": 1,
-    "mlp_hidden_layers": 2,
-    "mlp_hidden_layer_dim": 4
-}
-t = Transformer(**params)
-input = torch.tensor([
-    [0, 1],
-    [1, 2],
-    [0, 3],
-])
+# torch.manual_seed(157)
+# params = {
+#     "vocab_size": 6,
+#     "token_dim": 4,
+#     "endecoder_layers": 2,
+#     "seq_length": 2,
+#     "n_heads": 1,
+#     "mlp_hidden_layers": 2,
+#     "mlp_hidden_layer_dim": 4
+# }
+# t = Transformer(**params)
+# input = torch.tensor([
+#     [0, 1],
+#     [1, 2],
+#     [0, 3],
+# ])
 
-print(t(input))
+# print(t(input))
