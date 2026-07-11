@@ -76,13 +76,35 @@ class HomeReLU(nn.Module):
         return x * mask
 
 
+class Linear2(nn.Module):
+    def __init__(self, in_features: int, out_features: int, device = None, dtype = None) -> None:
+        super().__init__()
+        self.input_dim = in_features
+        self.output_dim = out_features
+        self.layerAAA = nn.Parameter(torch.empty(self.input_dim, self.output_dim, device=device, dtype=dtype))
+        self.init_layer()
+
+    def init_layer(self) -> None:
+        dim0, dim1 = self.layerAAA.shape
+        sigma = 2.0 / (dim0 + dim1)
+        init.trunc_normal_(self.layerAAA, mean=0.0, std=sigma, a=-3.0*sigma, b=3.0*sigma)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # b, seq, token_dim = x.shape
+        return x @ self.layerAAA
+
+
 class Linear(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
         self.input_dim = kwargs.pop("input_dim")
         self.output_dim = kwargs.pop("output_dim")
-        self.layer = nn.Parameter(torch.empty(self.input_dim, self.output_dim))
-        self.init_layer()
+        if "weights" not in kwargs:
+            self.layer = nn.Parameter(torch.empty(self.input_dim, self.output_dim))
+            self.init_layer()
+        else:
+            weights = kwargs.pop("weights")
+            self.layer = nn.Parameter(weights)
     
     def init_layer(self) -> None:
         dim0, dim1 = self.layer.shape

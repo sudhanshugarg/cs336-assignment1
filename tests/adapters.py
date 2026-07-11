@@ -10,6 +10,8 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from src.bpe_tokenizer import BPETokenizer
 from src.tokenizer import Tokenizer
+from src.transformer import Linear2
+
 
 
 def run_linear(
@@ -30,8 +32,17 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
+    # params = {
+    #     "input_dim": d_in,
+    #     "output_dim": d_out,
+    #     "weights": weights
+    # }
+    linear = Linear2(in_features=d_in, out_features=d_out)
+    linear.load_state_dict({
+        "layerAAA": weights.T
+    })
+    return linear(in_features)
 
-    raise NotImplementedError
 
 
 def run_embedding(
