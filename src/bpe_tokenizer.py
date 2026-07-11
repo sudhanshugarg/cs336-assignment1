@@ -279,13 +279,13 @@ class BPETokenizer():
         # print("changes:", tokenCountsChanged)
 
 if __name__ == "__main__":
-    num_processes = (200, 300)
+    num_processes = (1000, )
     vocab_size = 32000
     dataset_name = "openwebtext"
     for i in num_processes:
         start = time.perf_counter()
         params = {
-            "input_path": f"src/resources/{dataset_name}_sample_0.bin",
+            "input_path": f"src/resources/{dataset_name}_sample_2000000.bin",
             "vocab_size": vocab_size,
             "special_tokens": [
                 "<|endoftext|>"

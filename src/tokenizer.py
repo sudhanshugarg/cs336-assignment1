@@ -156,10 +156,16 @@ class Tokenizer():
 
 
 # tokenizer = Tokenizer.from_files(
-#                 vocab_filepath="src/resources/vocab_next_50.pkl",
-#                 merges_filepath="src/resources/vocab_next_50.pkl",
-#                 special_tokens=["<|hey|>"]
+#                 vocab_filepath="src/resources/tinystories_vocab_10000.pkl",
+#                 merges_filepath="src/resources/tinystories_vocab_10000.pkl",
+#                 special_tokens=["<|endoftext|>"]
 #             )
+
+# with open("src/resources/openwebtext_sample_20.bin", "r") as f:
+#     data = f.read()
+#     encoded = tokenizer.encode(data)
+#     print(len(encoded), len(data.encode("utf-8")))
+
 
 # examples = [
 #     "thesemondaytuesdayand<|hey|>what<|hey|><|hey|>no oneis there",

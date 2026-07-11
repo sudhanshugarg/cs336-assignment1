@@ -5,7 +5,7 @@ def get_sample_records(ds, n: int = 0):
     print(ds.column_names)
     # print(len(ds))
     if n > 0:
-        records = ds.take(n)
+        records = ds.shuffle(seed=157).take(n)
     else:
         records = ds
     return records
@@ -29,5 +29,5 @@ def generate_openwebtext(n: int = 0):
     write_sample_records(ds, f"src/resources/openwebtext_sample_{n}.bin")
 
 
-# generate_tinystores()
-generate_openwebtext()
+# generate_tinystores(20)
+generate_openwebtext(200_000_0)
