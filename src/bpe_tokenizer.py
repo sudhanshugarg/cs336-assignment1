@@ -28,27 +28,6 @@ class TokenPair():
     def __eq__(self, other: TokenPair):
         return self.count == other.count and self.pair == other.pair
 
-
-def bpe_read_chunk(chunk: str, pat_str: str, special_token: str):
-    pat = regex.compile(pat_str)
-    chunkWordCount = defaultdict(int)
-    for match in pat.finditer(chunk):
-        word = match.group()
-        if word == special_token:
-            continue
-
-        word_int_tuple = list(word.encode("utf-8"))
-        word_tuple_arr = []
-        for c in word_int_tuple:
-            # self.tokenMap[bytes([c])] = c
-            # self.tokenMapInt[c] = bytes([c])
-            word_tuple_arr.append(bytes([c]))
-        word_tuple = tuple(word_tuple_arr)
-
-        chunkWordCount[word_tuple] += 1
-
-    return chunkWordCount
-
 class BPETokenizer():
     def __init__(self, *args: Any, **kwargs: Any):
         self.input_path = kwargs["input_path"]
@@ -56,13 +35,7 @@ class BPETokenizer():
         self.special_tokens = kwargs["special_tokens"]
         self.num_processes = kwargs["num_processes"]
         special_token_bytes = self.special_tokens[0].encode("utf-8")
-        special_token_regex = regex.escape(self.special_tokens[0])
-        self.regex_string = r"""'(?:[sdmt]|ll|ve|re)| ?""" + special_token_regex + r"""| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        # self.regex_string = (
-        #    r"""'(?:[sdmt]|ll|ve|re)|"""
-        #    + special_token_regex +
-        #    r"""| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        # )
+        self.regex_string = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         # print(regex_string)
         self.PAT = regex.compile(self.regex_string)
 
@@ -77,18 +50,26 @@ class BPETokenizer():
         self.merges = []
         self.tokenMap = {}
         self.tokenMapInt = {}
-        self.nextTokenId = 257
         self.pairsInHeap = set()
         self.h = []
         self.whereIsPair = defaultdict(set)
         self.tokenFreq = defaultdict(int)
 
 
-        self.tokenMap[special_token_bytes] = 0
-        self.tokenMapInt[0] = special_token_bytes
+        for i in range(len(self.special_tokens)):
+            special_token_bytes = self.special_tokens[i].encode("utf-8")
+            self.tokenMap[special_token_bytes] = i
+            self.tokenMapInt[i] = special_token_bytes
+        k = len(self.special_tokens)
         for i in range(256):
-            self.tokenMap[bytes([i])] = i+1
-            self.tokenMapInt[i+1] = bytes([i])
+            self.tokenMap[bytes([i])] = i+k
+            self.tokenMapInt[i+k] = bytes([i])
+
+        self.nextTokenId = 256 + k
+
+        regex_escaped_tokens = [regex.escape(token) for token in self.special_tokens]
+        regex_escaped_tokens_str = "|".join(regex_escaped_tokens)
+        self.regex_special_tokens = regex.compile(f"({regex_escaped_tokens_str})")
 
     def train_bpe(self) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
         """
@@ -103,7 +84,8 @@ class BPETokenizer():
     def _get_str_list(self, word: list[bytes]) -> list[str]:
         result = []
         for w in word:
-            result.append(w.decode("utf-8"))
+            # the errors is for single bytes that are actually part of 2 or 4 byte utf-8 charset
+            result.append(w.decode("utf-8", errors="replace"))
         return result
 
     def _print_word_count(self):
@@ -114,20 +96,26 @@ class BPETokenizer():
 
     def _read_chunk(self, chunk: str):
         chunkWordCount = defaultdict(int)
-        for match in self.PAT.finditer(chunk):
-            word = match.group()
-            if word == self.special_tokens[0]:
+
+        chunks = regex.split(self.regex_special_tokens, chunk)
+        for chunk in chunks:
+            if chunk in self.special_tokens:
                 continue
 
-            word_int_tuple = list(word.encode("utf-8"))
-            word_tuple_arr = []
-            for c in word_int_tuple:
-                # self.tokenMap[bytes([c])] = c
-                # self.tokenMapInt[c] = bytes([c])
-                word_tuple_arr.append(bytes([c]))
-            word_tuple = tuple(word_tuple_arr)
+            for match in self.PAT.finditer(chunk):
+                word = match.group()
+                # if word == self.special_tokens[0]:
+                #     continue
 
-            chunkWordCount[word_tuple] += 1
+                word_int_tuple = list(word.encode("utf-8"))
+                word_tuple_arr = []
+                for c in word_int_tuple:
+                    # self.tokenMap[bytes([c])] = c
+                    # self.tokenMapInt[c] = bytes([c])
+                    word_tuple_arr.append(bytes([c]))
+                word_tuple = tuple(word_tuple_arr)
+
+                chunkWordCount[word_tuple] += 1
 
         return chunkWordCount
 
@@ -139,7 +127,6 @@ class BPETokenizer():
 
     def breakup_1(self):
         ctx = get_context('spawn')
-        chunks = []
         chunks_small = []
         with open(self.input_path, "rb") as f:
             for start, end in zip(self.boundaries[:-1], self.boundaries[1:]):
@@ -292,7 +279,8 @@ class BPETokenizer():
         # print("changes:", tokenCountsChanged)
 
 if __name__ == "__main__":
-    for i in (10, 20, 30, 40):
+    num_processes = (10, 20, 30, 40)
+    for i in num_processes:
         start = time.perf_counter()
         params = {
             "input_path": "src/resources/tinystories_full.bin",
@@ -309,21 +297,22 @@ if __name__ == "__main__":
         end = time.perf_counter()
         print(f"elapsed time with {i} processes = {end - start:.4f} seconds")
 
-        with open(f"src/resources/vocab_next_{i}.pkl", "wb") as f:
+        with open(f"src/resources/tinystories_vocab_{i}.pkl", "wb") as f:
             pickle.dump({
                 "tokenmap": tokenmap,
                 "merges": merges
             }, f)
 
 
-    i = 50
-    with open(f"src/resources/vocab_next_{i}.pkl", "rb") as f:
+    i = num_processes[0]
+    with open(f"src/resources/tinystories_vocab_{i}.pkl", "rb") as f:
         data = pickle.load(f)
         # print(len(data["merges"]))
 
-    for i in (100, 200):
+    for j in range(1, len(num_processes)):
+        i = num_processes[j]
         print(f"testing {i}")
-        with open(f"src/resources/vocab_next_{i}.pkl", "rb") as f:
+        with open(f"src/resources/tinystories_vocab_{i}.pkl", "rb") as f:
             data2 = pickle.load(f)
             values1 = list(data["tokenmap"].values())
             values2 = list(data2["tokenmap"].values())
