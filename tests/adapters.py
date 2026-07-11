@@ -10,7 +10,7 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from src.bpe_tokenizer import BPETokenizer
 from src.tokenizer import Tokenizer
-from src.transformer import Linear2, TokenEmbedding, RMSNorm
+from src.transformer import Linear2, TokenEmbedding, RMSNorm, SiLU, FFN
 
 
 
@@ -100,7 +100,14 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    # d_ff = (8 * d_model) // 3
+    ffn = FFN(d_ff=d_ff, d_model=d_model)
+    ffn.load_state_dict({
+        "w1.layerAAA": w1_weight.T,
+        "w2.layerAAA": w2_weight.T,
+        "w3.layerAAA": w3_weight.T,
+    })
+    return ffn(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -413,7 +420,8 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    silu = SiLU()
+    return silu(in_features)
 
 
 def run_get_batch(

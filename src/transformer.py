@@ -75,6 +75,30 @@ class HomeReLU(nn.Module):
         mask = (x > 0).to(torch.int16)
         return x * mask
 
+class SiLU(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * torch.sigmoid(x)
+
+class FFN(nn.Module):
+    def __init__(self, d_ff: int, d_model: int) -> None:
+        super().__init__()
+        self.d_ff = d_ff
+        self.d_model = d_model
+        self.w1 = Linear2(in_features=d_model, out_features=d_ff)
+        self.w2 = Linear2(in_features=d_ff, out_features=d_model)
+        self.w3 = Linear2(in_features=d_model, out_features=d_ff)
+        self.silu = SiLU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.shape[-1] == self.d_model
+        w1_x = self.w1(x) # ..., d_ff
+        w1_x = self.silu(w1_x)
+        w3_x = self.w3(x) # ..., d_ff
+        w2_x = self.w2(w1_x * w3_x)
+        return w2_x
 
 class Linear2(nn.Module):
     def __init__(self, in_features: int, out_features: int, device = None, dtype = None) -> None:
