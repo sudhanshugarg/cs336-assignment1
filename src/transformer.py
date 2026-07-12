@@ -262,40 +262,45 @@ class RMSNorm(nn.Module):
 class RotaryPositionalEmbedding(nn.Module):
     def __init__(self, theta: float, d_k: int, max_seq_length: int, device=None):
         super().__init__()
+        assert d_k % 2 == 0
         self.d_k = d_k
         self.d_k_2 = d_k // 2
         self.theta = theta
         self.max_seq_length = max_seq_length
+        self.device = device
 
-    def _get_2_by_2(self, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-        return torch.stack([
-            torch.stack([cos, -sin]),
-            torch.stack([sin, cos])
-        ])
+        # for pre-computing the angles for all positions
+        powers = -2.0 * torch.arange(self.d_k // 2, dtype=torch.float32, device=device) / self.d_k
+        thetas = torch.pow(theta, powers) #1xd/2
+        # print(token_positions.unsqueeze(dim=-1).shape)
+        angles = torch.arange(max_seq_length, device=device, dtype=torch.float32).unsqueeze(dim=-1) * thetas[None, :] #[..., seq_len, d/2]
+        # print("angles: ", angles.shape)
+        cos = torch.cos(angles) #...,seq_len,d/2
+        # print("cos_angles: ", cos_angles.shape)
+        sin = torch.sin(angles) #...,seq_len,d/2
 
-    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
-        #x is [..., seq_len, token_dim]
-        #token_positions is [..., ] - it is the position of the sequence
-        #we cannot assume that the sequence positions are 0.. seq_length-1, they are given (i.e. m is given for each sequence)
-        #output is the same shape as input, i.e. x.shape
+        self.register_buffer("cos_angles", cos)
+        self.register_buffer("sin_angles", sin)
 
+    def _using_block_diag(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         seq_length, token_dim = x.shape[-2:]
         assert token_dim == self.d_k
 
         print("x: ", x.shape)
-        thetas = torch.pow(self.theta, -torch.arange(self.d_k // 2)) #1xd/2
+        powers = -2.0 * torch.arange(self.d_k // 2, dtype=torch.float32) / self.d_k
+        thetas = torch.pow(self.theta, powers) #1xd/2
         print("thetas: ", thetas.shape)
         print(token_positions.unsqueeze(dim=-1).shape)
-        angles = token_positions.unsqueeze(dim=-1) * thetas[None, :] #[..., seq_len, d]
+        angles = token_positions.unsqueeze(dim=-1) * thetas[None, :] #[..., seq_len, d/2]
         print("angles: ", angles.shape)
-        cos_angles = torch.cos(angles) #...,seq_len,d
+        cos_angles = torch.cos(angles) #...,seq_len,d/2
         # print("cos_angles: ", cos_angles.shape)
-        sin_angles = torch.sin(angles) #...,seq_len,d
+        sin_angles = torch.sin(angles) #...,seq_len,d/2
         # print("sin_angles: ", sin_angles.shape)
 
         rotations = torch.stack([
-            torch.stack([cos_angles, -sin_angles], dim=-1), #sxdx2
-            torch.stack([sin_angles, cos_angles], dim=-1) #sxdx2
+            torch.stack([cos_angles, sin_angles], dim=-1), #sxdx2
+            torch.stack([-sin_angles, cos_angles], dim=-1) #sxdx2
         ], dim=-2) #..., seq_len, d, 2, 2
         print("rotations: ", rotations.shape)
         # print(rotations)
@@ -331,20 +336,37 @@ class RotaryPositionalEmbedding(nn.Module):
 
         return roped
 
-        #steps
-        #i need dxd block_diag array, one per token
-        #lets say batch, seq, token_dim = 2,3,6
-        #3x6 angles
-        #then for one seq, 1,6, i need its token_position - say m=20, and then compute dxd
-        #i.e. cos(m*theta_1)
-        #lets say i have theta_1.. theta_3
-        #
-        # torch.diag_embed(a)
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        #x is [..., seq_len, token_dim]
+        #token_positions is [..., seq_len] - it is the position of the sequence
+        #we cannot assume that the sequence positions are 0.. seq_length-1, they are given (i.e. m is given for each sequence)
+        #output is the same shape as input, i.e. x.shape
 
-        # for i in range(seq_length):
-        #     for j in range(self.d_k_2):
-        #         angle = i * (10000.0) ** (-2*j/self.d_k)
-        #         x[i][2*j], x[i][2*j+1] = x[i][2*j] * math.cos(angle) - x[i][2*j+1] * math.sin(angle), x[i][2*j] * math.sin(angle) - x[i][2*j+1] * math.cos(angle)
+        seq_length, token_dim = x.shape[-2:]
+        assert token_dim == self.d_k
+        assert seq_length == token_positions.shape[-1]
+        assert x.device == self.cos_angles.device
+
+        token_positions = token_positions.to(device=x.device, dtype=torch.long)
+
+        # print("x: ", x.shape)
+        # print("thetas: ", thetas.shape)
+        cos_angles = self.cos_angles[token_positions].to(x.dtype) #...,seq_len,d/2
+        sin_angles = self.sin_angles[token_positions].to(x.dtype) #...,seq_len,d/2
+
+        x = x.reshape(*x.shape[:-1], self.d_k // 2, 2)
+        x_top = x[..., 0] #..., d_2. last dimension gets removed when indexing with 0 or 1
+        x_bottom = x[..., 1] #..., d_2
+
+        #x_top and x_bottom are pairs
+        roped = torch.stack([
+            x_top * cos_angles - x_bottom * sin_angles,
+            x_top * sin_angles + x_bottom * cos_angles
+        ], dim=-1) #..., d_2, 2
+
+        roped = roped.reshape(*x.shape[:-2], self.d_k)
+
+        return roped
 
 
 class TokenEmbedding(nn.Module):
@@ -372,7 +394,6 @@ class Transformer(nn.Module):
 
         self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
         self.rope = RotaryPositionalEmbedding(theta = 10000.0, d_k = self.token_dim, max_seq_length = self.seq_length)
-        
 
         # with torch.no_grad():
         #     self.tokenEmbeddings.uniform_(0.0, 0.02)    
