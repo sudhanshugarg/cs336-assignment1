@@ -259,6 +259,92 @@ class RMSNorm(nn.Module):
         denominator = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
         return ((x / denominator) * self.gamma).to(in_dtype)
 
+class RotaryPositionalEmbedding(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_length: int, device=None):
+        super().__init__()
+        self.d_k = d_k
+        self.d_k_2 = d_k // 2
+        self.theta = theta
+        self.max_seq_length = max_seq_length
+
+    def _get_2_by_2(self, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+        return torch.stack([
+            torch.stack([cos, -sin]),
+            torch.stack([sin, cos])
+        ])
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        #x is [..., seq_len, token_dim]
+        #token_positions is [..., ] - it is the position of the sequence
+        #we cannot assume that the sequence positions are 0.. seq_length-1, they are given (i.e. m is given for each sequence)
+        #output is the same shape as input, i.e. x.shape
+
+        seq_length, token_dim = x.shape[-2:]
+        assert token_dim == self.d_k
+
+        print("x: ", x.shape)
+        thetas = torch.pow(self.theta, -torch.arange(self.d_k // 2)) #1xd/2
+        print("thetas: ", thetas.shape)
+        print(token_positions.unsqueeze(dim=-1).shape)
+        angles = token_positions.unsqueeze(dim=-1) * thetas[None, :] #[..., seq_len, d]
+        print("angles: ", angles.shape)
+        cos_angles = torch.cos(angles) #...,seq_len,d
+        # print("cos_angles: ", cos_angles.shape)
+        sin_angles = torch.sin(angles) #...,seq_len,d
+        # print("sin_angles: ", sin_angles.shape)
+
+        rotations = torch.stack([
+            torch.stack([cos_angles, -sin_angles], dim=-1), #sxdx2
+            torch.stack([sin_angles, cos_angles], dim=-1) #sxdx2
+        ], dim=-2) #..., seq_len, d, 2, 2
+        print("rotations: ", rotations.shape)
+        # print(rotations)
+
+
+        num_blocks = rotations.shape[-3]  # 4
+
+        block_mask = torch.eye(
+            num_blocks,
+            device=rotations.device,
+            dtype=rotations.dtype,
+        )
+
+        out = torch.einsum(
+            "...kij,kl->...kilj",
+            rotations,
+            block_mask,
+        )
+
+        out = out.reshape(*rotations.shape[:-3], num_blocks * 2, num_blocks * 2)
+        # diag = torch.block_diag(*rotations)
+        # print("diag: ", diag.shape)
+        print("out: ", out.shape)
+
+        # once i have the rotations, then what?
+        # x = 2,6,8. rotations = 2,6,8,8
+        # 2,6,1,8 @ 2,6,8,8 -> 2,6,1,8 -> squeeze -> 2,6,8
+        roped = x.unsqueeze(dim=-2) @ out
+        print("roped @: ", roped.shape)
+
+        roped = roped.squeeze(dim=-2)
+        print("roped: ", roped.shape)
+
+        return roped
+
+        #steps
+        #i need dxd block_diag array, one per token
+        #lets say batch, seq, token_dim = 2,3,6
+        #3x6 angles
+        #then for one seq, 1,6, i need its token_position - say m=20, and then compute dxd
+        #i.e. cos(m*theta_1)
+        #lets say i have theta_1.. theta_3
+        #
+        # torch.diag_embed(a)
+
+        # for i in range(seq_length):
+        #     for j in range(self.d_k_2):
+        #         angle = i * (10000.0) ** (-2*j/self.d_k)
+        #         x[i][2*j], x[i][2*j+1] = x[i][2*j] * math.cos(angle) - x[i][2*j+1] * math.sin(angle), x[i][2*j] * math.sin(angle) - x[i][2*j+1] * math.cos(angle)
 
 
 class TokenEmbedding(nn.Module):
@@ -285,6 +371,7 @@ class Transformer(nn.Module):
         self.ln = LayerNorm(dim=self.token_dim)
 
         self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
+        self.rope = RotaryPositionalEmbedding(theta = 10000.0, d_k = self.token_dim, max_seq_length = self.seq_length)
         
 
         # with torch.no_grad():
@@ -346,10 +433,15 @@ class Transformer(nn.Module):
 #     "mlp_hidden_layer_dim": 4
 # }
 # t = Transformer(**params)
-# input = torch.tensor([
-#     [0, 1],
-#     [1, 2],
-#     [0, 3],
-# ])
+# batch_size, seq_length, token_dim = 2, 6, 8
+
+# input = torch.rand([batch_size, seq_length, token_dim])
+# print("x: ", input.shape)
 
 # print(t(input))
+
+# rope = RotaryPositionalEmbedding(theta = 10.0, d_k=8, max_seq_length=6)
+# token_positions = torch.randint_like(torch.empty([batch_size, seq_length]), low=0, high=10)
+# print("token_positions: ", token_positions.shape)
+
+# rope(input, token_positions)

@@ -27,16 +27,17 @@ with open(input_text_path, "rb") as f:
     )
     # The following is a serial implementation, but you can parallelize this
     # by sending each start/end pair to a set of processes.
-    i, j = 0, 1
-    for start, end in zip(boundaries[:-1], boundaries[1:]):
+    i = 0
+    for j, (start, end) in enumerate(zip(boundaries[:-1], boundaries[1:])):
+        if ((j+1) < 391):
+            continue
         f.seek(start)
         chunk = f.read(end - start).decode("utf-8", errors="ignore")
         encoded_tokens = np.array(tokenizer.encode(chunk), dtype=np.uint16)
         output_arr[i:i+len(encoded_tokens)] = encoded_tokens
         i += len(encoded_tokens)
-        print(f"got {len(encoded_tokens)} from {j}th chunk")
+        print(f"got {len(encoded_tokens)} from {j+1}th chunk")
         output_arr.flush()
-        j += 1
 
     length = i
     print(f"num_tokens = {length}")
