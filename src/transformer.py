@@ -38,10 +38,10 @@ eval: sample from logits and take next token [DONE]
 """
 class Utils():
     @staticmethod
-    def stable_softmax(x: torch.Tensor) -> torch.Tensor:
-        max_logit = torch.max(x, dim=-1, keepdim=True).values
+    def stable_softmax(x: torch.Tensor, dimension: int=-1) -> torch.Tensor:
+        max_logit = torch.max(x, dim=dimension, keepdim=True).values
         x = torch.exp(x - max_logit) #b, n_heads, seq, seq
-        sum = torch.sum(x, dim=-1, keepdim=True)
+        sum = torch.sum(x, dim=dimension, keepdim=True)
         return x / sum
 
 class EnDecoder(nn.Module):
