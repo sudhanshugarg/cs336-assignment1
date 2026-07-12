@@ -118,6 +118,7 @@ class Linear2(nn.Module):
         return x @ self.layerAAA
 
 
+@DeprecationWarning
 class Linear(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
@@ -196,6 +197,10 @@ class CausalSelfAttention(nn.Module):
         self.V = Linear2(self.token_dim, self.token_dim)
         self.up_proj = Linear2(self.token_dim, self.token_dim)
 
+        max_seq_length = kwargs["seq_length"]
+        device = kwargs["device"]
+        self.rope = RotaryPositionalEmbedding(theta=10000.0, d_k=self.token_dim, max_seq_length=max_seq_length, device=device)
+
 
     def _upper_triangular(self, n: int) -> torch.Tensor:
         rows = torch.arange(n).view(n, 1)
@@ -207,9 +212,13 @@ class CausalSelfAttention(nn.Module):
         b, seq, tok = x.shape
         assert(tok == self.token_dim)
 
+        token_positions = torch.arange(seq)
+
         q = self.Q(x) #b, seq, tok_dim
+        q = self.rope(q, token_positions)
         q = q.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
         k = self.K(x) #b, seq, tok_dim
+        k = self.rope(k, token_positions)
         k = k.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
         v = self.V(x)
         v = v.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
@@ -387,19 +396,26 @@ class Transformer(nn.Module):
         self.vocab_size = kwargs.pop("vocab_size")
         self.token_dim = kwargs["token_dim"]
         self.endecoder_layers = kwargs.pop("endecoder_layers")
-        self.seq_length = kwargs.pop("seq_length")
+        self.seq_length = kwargs["seq_length"]
+        self.device = kwargs["device"]
 
-        self.tokenEmbeddings = TokenEmbedding(num_embeddings=self.vocab_size, embeddings_dim=self.token_dim)
+        self.tokenEmbeddings = TokenEmbedding(
+            num_embeddings=self.vocab_size,
+            embeddings_dim=self.token_dim,
+            device=self.device
+        )
         self.ln = LayerNorm(dim=self.token_dim)
 
         self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
-        self.rope = RotaryPositionalEmbedding(theta = 10000.0, d_k = self.token_dim, max_seq_length = self.seq_length)
+        self.rope = RotaryPositionalEmbedding(
+            theta = 10000.0,
+            d_k = self.token_dim,
+            max_seq_length = self.seq_length,
+            device=self.device
+        )
 
-        # with torch.no_grad():
-        #     self.tokenEmbeddings.uniform_(0.0, 0.02)    
-        # print(self.tokenEmbeddings)
         self.layers = nn.ModuleList()
-        for i in range(self.endecoder_layers):
+        for _ in range(self.endecoder_layers):
             self.layers.append(EnDecoder(**kwargs))
 
     def _get_positional_embedding(self) -> torch.Tensor:
@@ -425,9 +441,8 @@ class Transformer(nn.Module):
         #ignore the pad tokens.
         #TODO create the input mask
         #padding token also gets learnt, but is useless.
-        # print(x)
         y = self.tokenEmbeddings(x) #b, seq, token_dim
-        y = y + self.sinusoidalPositionalEmbeddings #seq, token_dim
+        # y = y + self.sinusoidalPositionalEmbeddings #seq, token_dim
 
         for i in range(self.endecoder_layers):
             y = self.layers[i](y)
@@ -443,26 +458,26 @@ class Transformer(nn.Module):
 
         
 
-# torch.manual_seed(157)
-# params = {
-#     "vocab_size": 6,
-#     "token_dim": 4,
-#     "endecoder_layers": 2,
-#     "seq_length": 2,
-#     "n_heads": 1,
-#     "mlp_hidden_layers": 2,
-#     "mlp_hidden_layer_dim": 4
-# }
-# t = Transformer(**params)
-# batch_size, seq_length, token_dim = 2, 6, 8
+torch.manual_seed(157)
+params = {
+    "vocab_size": 6,
+    "token_dim": 4,
+    "endecoder_layers": 2,
+    "seq_length": 2,
+    "n_heads": 1,
+    "mlp_hidden_layers": 2,
+    "mlp_hidden_layer_dim": 4,
+    "device": "cpu"
+}
+t = Transformer(**params)
+batch_size, seq_length, token_dim = 2, params["seq_length"], params["token_dim"]
+x = torch.randint(low=0, high=params["vocab_size"], size=(batch_size, seq_length))
+print(t(x))
 
-# input = torch.rand([batch_size, seq_length, token_dim])
-# print("x: ", input.shape)
-
-# print(t(input))
-
+# input_x = torch.rand([batch_size, seq_length, token_dim])
+# print("x: ", input_x.shape)
 # rope = RotaryPositionalEmbedding(theta = 10.0, d_k=8, max_seq_length=6)
 # token_positions = torch.randint_like(torch.empty([batch_size, seq_length]), low=0, high=10)
 # print("token_positions: ", token_positions.shape)
 
-# rope(input, token_positions)
+# rope(input_x, token_positions)
