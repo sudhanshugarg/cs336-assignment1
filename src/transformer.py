@@ -59,7 +59,9 @@ class EnDecoder(nn.Module):
         # x1 = self.ln(x1)
         # x1 = self.attention(x1, True)
         # x1 = x + x1
-        x = x + self.attention(self.ln(x), use_upper_triangular=True)
+        seq = x.shape[-2]
+        token_positions = torch.arange(seq)
+        x = x + self.attention(self.ln(x), token_positions=token_positions, use_upper_triangular=True)
 
         # x2 = x1.clone()
         # x2 = self.ln(x2)
@@ -199,7 +201,8 @@ class CausalSelfAttention(nn.Module):
 
         max_seq_length = kwargs["seq_length"]
         device = kwargs["device"]
-        self.rope = RotaryPositionalEmbedding(theta=10000.0, d_k=self.token_dim, max_seq_length=max_seq_length, device=device)
+        theta = float(kwargs["theta"])
+        self.rope = RotaryPositionalEmbedding(theta=theta, d_k=self.token_dim, max_seq_length=max_seq_length, device=device)
 
 
     def _upper_triangular(self, n: int) -> torch.Tensor:
@@ -220,17 +223,23 @@ class CausalSelfAttention(nn.Module):
         result = torch.matmul(attention_softmax, v) #b, n_heads, seq, head_dim
         return result
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None, use_upper_triangular: bool = False) -> torch.Tensor:
+    def forward(self,
+                x: torch.Tensor,
+                token_positions: torch.Tensor | None = None,
+                mask: torch.Tensor | None = None,
+                use_upper_triangular: bool = False) -> torch.Tensor:
         b, seq, tok = x.shape
         assert(tok == self.token_dim)
 
-        token_positions = torch.arange(seq)
+        # token_positions = torch.arange(seq)
 
         q = self.Q(x) #b, seq, tok_dim
-        q = self.rope(q, token_positions)
+        if token_positions is not None:
+            q = self.rope(q, token_positions)
         q = q.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
         k = self.K(x) #b, seq, tok_dim
-        k = self.rope(k, token_positions)
+        if token_positions is not None:
+            k = self.rope(k, token_positions)
         k = k.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
         v = self.V(x)
         v = v.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
@@ -305,8 +314,10 @@ class RotaryPositionalEmbedding(nn.Module):
         # print("cos_angles: ", cos_angles.shape)
         sin = torch.sin(angles) #...,seq_len,d/2
 
-        self.register_buffer("cos_angles", cos)
-        self.register_buffer("sin_angles", sin)
+        # self.register_buffer("cos_angles", cos)
+        # self.register_buffer("sin_angles", sin)
+        self.cos_angles = cos
+        self.sin_angles = sin
 
     def _using_block_diag(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         seq_length, token_dim = x.shape[-2:]
@@ -484,7 +495,8 @@ class Transformer(nn.Module):
 #     "n_heads": 1,
 #     "mlp_hidden_layers": 2,
 #     "mlp_hidden_layer_dim": 4,
-#     "device": "cpu"
+#     "theta": 10000,
+#     "device": "cpu",
 # }
 # t = Transformer(**params)
 # batch_size, seq_length, token_dim = 2, params["seq_length"], params["token_dim"]
