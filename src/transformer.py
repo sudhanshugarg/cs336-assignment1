@@ -59,7 +59,7 @@ class EnDecoder(nn.Module):
         # x1 = self.ln(x1)
         # x1 = self.attention(x1, True)
         # x1 = x + x1
-        x = x + self.attention(self.ln(x), True)
+        x = x + self.attention(self.ln(x), use_upper_triangular=True)
 
         # x2 = x1.clone()
         # x2 = self.ln(x2)
@@ -205,10 +205,22 @@ class CausalSelfAttention(nn.Module):
     def _upper_triangular(self, n: int) -> torch.Tensor:
         rows = torch.arange(n).view(n, 1)
         cols = torch.arange(n).view(-1, n)
-        return rows < cols
+        # we want 1s to represent the values to keep, and 0s to represent
+        # the values to set to -inf. hence return negation.
+        return ~(rows < cols)
 
+    @staticmethod
+    def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        #q.shape = ..., b, n_heads, seq, head_dim
+        attention = q @ k.transpose(-2, -1) / math.sqrt(q.shape[-1]) #b, n_heads, seq, seq
+        if mask is not None:
+            attention = attention.masked_fill(~mask, float("-inf"))
 
-    def forward(self, x: torch.Tensor, do_mask: bool) -> torch.Tensor:
+        attention_softmax = Utils.stable_softmax(attention) #b, n_heads, seq, seq
+        result = torch.matmul(attention_softmax, v) #b, n_heads, seq, head_dim
+        return result
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None, use_upper_triangular: bool = False) -> torch.Tensor:
         b, seq, tok = x.shape
         assert(tok == self.token_dim)
 
@@ -223,15 +235,20 @@ class CausalSelfAttention(nn.Module):
         v = self.V(x)
         v = v.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
 
-        attention = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim) #b, n_heads, seq, seq
-        if do_mask:
+        # attention = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim) #b, n_heads, seq, seq
+        # if mask:
+        #     attention = attention.masked_fill(mask, float("-inf"))
+        # elif use_upper_triangular:
+        #     mask = self._upper_triangular(seq)
+        #     attention = attention.masked_fill(mask, float("-inf"))
+
+        # attention_softmax = Utils.stable_softmax(attention) #b, n_heads, seq, seq
+        # result = torch.matmul(attention_softmax, v) #b, n_heads, seq, head_dim
+
+        if mask is None and use_upper_triangular:
             mask = self._upper_triangular(seq)
-            attention = attention.masked_fill(mask, float("-inf"))
-
-        attention_softmax = Utils.stable_softmax(attention) #b, n_heads, seq, seq
-
-        result = torch.matmul(attention_softmax, v) #b, n_heads, seq, head_dim
-        result = result.transpose(1, 2).reshape(b, seq, self.token_dim)
+        scaled_dot_prod_attn = self.scaled_dot_product_attention(q, k, v, mask)
+        result = scaled_dot_prod_attn.transpose(1, 2).reshape(b, seq, self.token_dim)
         return self.up_proj(result)
 
 
@@ -458,21 +475,21 @@ class Transformer(nn.Module):
 
         
 
-torch.manual_seed(157)
-params = {
-    "vocab_size": 6,
-    "token_dim": 4,
-    "endecoder_layers": 2,
-    "seq_length": 2,
-    "n_heads": 1,
-    "mlp_hidden_layers": 2,
-    "mlp_hidden_layer_dim": 4,
-    "device": "cpu"
-}
-t = Transformer(**params)
-batch_size, seq_length, token_dim = 2, params["seq_length"], params["token_dim"]
-x = torch.randint(low=0, high=params["vocab_size"], size=(batch_size, seq_length))
-print(t(x))
+# torch.manual_seed(157)
+# params = {
+#     "vocab_size": 6,
+#     "token_dim": 4,
+#     "endecoder_layers": 2,
+#     "seq_length": 2,
+#     "n_heads": 1,
+#     "mlp_hidden_layers": 2,
+#     "mlp_hidden_layer_dim": 4,
+#     "device": "cpu"
+# }
+# t = Transformer(**params)
+# batch_size, seq_length, token_dim = 2, params["seq_length"], params["token_dim"]
+# x = torch.randint(low=0, high=params["vocab_size"], size=(batch_size, seq_length))
+# print(t(x))
 
 # input_x = torch.rand([batch_size, seq_length, token_dim])
 # print("x: ", input_x.shape)
