@@ -170,12 +170,12 @@ def run_multihead_self_attention(
     }
     attention = CausalSelfAttention(**params)
     attention.load_state_dict({
-        "Q.layerAAA": q_proj_weight,
-        "K.layerAAA": k_proj_weight,
-        "V.layerAAA": v_proj_weight,
-        "up_proj.layerAAA": o_proj_weight,
+        "Q.layerAAA": q_proj_weight.T,
+        "K.layerAAA": k_proj_weight.T,
+        "V.layerAAA": v_proj_weight.T,
+        "up_proj.layerAAA": o_proj_weight.T,
     })
-    return attention(x=in_features)
+    return attention(x=in_features, use_upper_triangular=True)
 
 
 def run_multihead_self_attention_with_rope(
@@ -224,10 +224,10 @@ def run_multihead_self_attention_with_rope(
     }
     attention = CausalSelfAttention(**params)
     attention.load_state_dict({
-        "Q.layerAAA": q_proj_weight,
-        "K.layerAAA": k_proj_weight,
-        "V.layerAAA": v_proj_weight,
-        "up_proj.layerAAA": o_proj_weight,
+        "Q.layerAAA": q_proj_weight.T,
+        "K.layerAAA": k_proj_weight.T,
+        "V.layerAAA": v_proj_weight.T,
+        "up_proj.layerAAA": o_proj_weight.T,
     })
     return attention(x=in_features, token_positions=token_positions)
 

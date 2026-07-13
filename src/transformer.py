@@ -201,9 +201,8 @@ class CausalSelfAttention(nn.Module):
 
         max_seq_length = kwargs["seq_length"]
         device = kwargs["device"]
-        theta = float(kwargs["theta"])
+        theta = float(kwargs.get("theta", 100.0))
         self.rope = RotaryPositionalEmbedding(theta=theta, d_k=self.token_dim, max_seq_length=max_seq_length, device=device)
-
 
     def _upper_triangular(self, n: int) -> torch.Tensor:
         rows = torch.arange(n).view(n, 1)
@@ -216,14 +215,16 @@ class CausalSelfAttention(nn.Module):
     def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         #q.shape = ..., b, n_heads, seq, head_dim
         attention = q @ k.transpose(-2, -1) / math.sqrt(q.shape[-1]) #b, n_heads, seq, seq
+        # print("within scaled dot: ", attention.shape)
         if mask is not None:
             attention = attention.masked_fill(~mask, float("-inf"))
 
-        attention_softmax = Utils.stable_softmax(attention) #b, n_heads, seq, seq
+        attention_softmax = Utils.stable_softmax(attention, dimension=-1) #b, n_heads, seq, seq
         result = torch.matmul(attention_softmax, v) #b, n_heads, seq, head_dim
+
         return result
 
-    def forward(self,
+    def forward2(self,
                 x: torch.Tensor,
                 token_positions: torch.Tensor | None = None,
                 mask: torch.Tensor | None = None,
@@ -234,32 +235,58 @@ class CausalSelfAttention(nn.Module):
         # token_positions = torch.arange(seq)
 
         q = self.Q(x) #b, seq, tok_dim
-        if token_positions is not None:
-            q = self.rope(q, token_positions)
+        # if token_positions is not None:
+        #     q = self.rope(q, token_positions)
         q = q.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
         k = self.K(x) #b, seq, tok_dim
-        if token_positions is not None:
-            k = self.rope(k, token_positions)
+        # if token_positions is not None:
+        #     k = self.rope(k, token_positions)
         k = k.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
         v = self.V(x)
         v = v.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
 
-        # attention = q @ k.transpose(-2, -1) / math.sqrt(self.head_dim) #b, n_heads, seq, seq
-        # if mask:
-        #     attention = attention.masked_fill(mask, float("-inf"))
-        # elif use_upper_triangular:
-        #     mask = self._upper_triangular(seq)
-        #     attention = attention.masked_fill(mask, float("-inf"))
-
-        # attention_softmax = Utils.stable_softmax(attention) #b, n_heads, seq, seq
-        # result = torch.matmul(attention_softmax, v) #b, n_heads, seq, head_dim
-
         if mask is None and use_upper_triangular:
             mask = self._upper_triangular(seq)
-        scaled_dot_prod_attn = self.scaled_dot_product_attention(q, k, v, mask)
+        scaled_dot_prod_attn = CausalSelfAttention.scaled_dot_product_attention(q, k, v, mask)
         result = scaled_dot_prod_attn.transpose(1, 2).reshape(b, seq, self.token_dim)
         return self.up_proj(result)
 
+
+    def forward(self,
+                x: torch.Tensor,
+                token_positions: torch.Tensor | None = None,
+                mask: torch.Tensor | None = None,
+                use_upper_triangular: bool = False) -> torch.Tensor:
+        _, seq, _ = x.shape
+        if token_positions is not None:
+            assert seq == token_positions.shape[-1]
+        if mask is not None:
+            assert seq == mask.shape[-1]
+
+        q = self.Q(x) #b, seq, token
+        k = self.K(x) #b, seq, token
+        v = self.V(x) #b, seq, token
+        # print("q,k,v.shape: ", q.shape, k.shape, v.shape)
+
+        q = q.reshape(*x.shape[:-1], self.n_heads, self.head_dim).transpose(-2, -3) #b, n_heads, seq, head_dim
+        k = k.reshape(*x.shape[:-1], self.n_heads, self.head_dim).transpose(-2, -3)
+
+        if token_positions is not None:
+            q = self.rope(q, token_positions)
+            k = self.rope(k, token_positions)
+
+        v = v.reshape(*x.shape[:-1], self.n_heads, self.head_dim).transpose(-2, -3)
+        # print("q,k,v.shape (after reshape): ", q.shape, k.shape, v.shape)
+
+        if mask is None and use_upper_triangular:
+            mask = self._upper_triangular(seq)
+        attention = CausalSelfAttention.scaled_dot_product_attention(q, k, v, mask)
+        # print("scaled dot product attention shape: ", attention.shape)
+        attention = attention.transpose(-2, -3)
+        # print("scaled dot product attention reshape: ", attention.shape)
+        result = self.up_proj(attention.reshape(x.shape))
+        # print("result shape: ", result.shape)
+        return result
 
 class LayerNorm(nn.Module):
     def __init__(self, dim: int) -> None:
@@ -482,26 +509,27 @@ class Transformer(nn.Module):
         output_token_probs = Utils.stable_softmax(output_token_logits)
 
         return output_token_logits, output_token_probs
-        
 
-        
+
 
 # torch.manual_seed(157)
 # params = {
-#     "vocab_size": 6,
-#     "token_dim": 4,
+#     "vocab_size": 3,
+#     "token_dim": 64,
 #     "endecoder_layers": 2,
-#     "seq_length": 2,
-#     "n_heads": 1,
+#     "seq_length": 6,
+#     "n_heads": 4,
 #     "mlp_hidden_layers": 2,
 #     "mlp_hidden_layer_dim": 4,
 #     "theta": 10000,
 #     "device": "cpu",
 # }
 # t = Transformer(**params)
-# batch_size, seq_length, token_dim = 2, params["seq_length"], params["token_dim"]
+# batch_size, seq_length, token_dim = 5, params["seq_length"], params["token_dim"]
 # x = torch.randint(low=0, high=params["vocab_size"], size=(batch_size, seq_length))
-# print(t(x))
+# logits, probs = t(x)
+# print(logits.shape)
+# print(logits)
 
 # input_x = torch.rand([batch_size, seq_length, token_dim])
 # print("x: ", input_x.shape)
