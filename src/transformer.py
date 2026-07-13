@@ -47,12 +47,12 @@ class Utils():
 class EnDecoder(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
-        attention_params = kwargs.copy()
-        self.attention = CausalSelfAttention(**attention_params)
-        mlp_params = kwargs.copy()
-        self.mlp = MLP(**mlp_params)
-        self.ln = LayerNorm(dim=kwargs["token_dim"])
-    
+        self.attention = CausalSelfAttention(**kwargs)
+        self.mlp = FFN(d_ff=kwargs["d_ff"], d_model=kwargs["token_dim"])
+        self.device = kwargs["device"]
+        self.norm1 = RMSNorm(d_model=kwargs["token_dim"], device=self.device)
+        self.norm2 = RMSNorm(d_model=kwargs["token_dim"], device=self.device)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         #PreLN norm residual
         # x1 = x.clone()
@@ -60,13 +60,13 @@ class EnDecoder(nn.Module):
         # x1 = self.attention(x1, True)
         # x1 = x + x1
         seq = x.shape[-2]
-        token_positions = torch.arange(seq)
-        x = x + self.attention(self.ln(x), token_positions=token_positions, use_upper_triangular=True)
+        token_positions = torch.arange(seq, device=self.device)
+        x = x + self.attention(self.norm1(x), token_positions=token_positions, use_upper_triangular=True)
 
         # x2 = x1.clone()
         # x2 = self.ln(x2)
         # x2 = self.mlp(x2)
-        x = x + self.mlp(self.ln(x))
+        x = x + self.mlp(self.norm2(x))
         return x
 
 class HomeReLU(nn.Module):
@@ -432,20 +432,14 @@ class Transformer(nn.Module):
             embeddings_dim=self.token_dim,
             device=self.device
         )
-        self.ln = LayerNorm(dim=self.token_dim)
-
+        self.ln = RMSNorm(d_model=self.token_dim, device=self.device)
         self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
-        self.rope = RotaryPositionalEmbedding(
-            theta = 10000.0,
-            d_k = self.token_dim,
-            max_seq_length = self.seq_length,
-            device=self.device
-        )
 
         self.layers = nn.ModuleList()
         for _ in range(self.endecoder_layers):
             self.layers.append(EnDecoder(**kwargs))
 
+    #TODO move into own sinusoidal class
     def _get_positional_embedding(self) -> torch.Tensor:
         x_axis = torch.arange(self.seq_length, dtype=torch.int)
         y_axis_even = torch.arange(0, self.token_dim, 2, dtype=torch.int)
@@ -485,15 +479,14 @@ class Transformer(nn.Module):
 
 
 
-# torch.manual_seed(157)
+torch.manual_seed(157)
 # params = {
 #     "vocab_size": 3,
 #     "token_dim": 64,
 #     "endecoder_layers": 2,
 #     "seq_length": 6,
 #     "n_heads": 4,
-#     "mlp_hidden_layers": 2,
-#     "mlp_hidden_layer_dim": 4,
+#     "d_ff": 4,
 #     "theta": 10000,
 #     "device": "cpu",
 # }

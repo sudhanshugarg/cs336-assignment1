@@ -10,7 +10,7 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from src.bpe_tokenizer import BPETokenizer
 from src.tokenizer import Tokenizer
-from src.transformer import Linear2, TokenEmbedding, RMSNorm, SiLU, FFN, RotaryPositionalEmbedding, Utils, CausalSelfAttention
+from src.transformer import Linear2, TokenEmbedding, RMSNorm, SiLU, FFN, RotaryPositionalEmbedding, Utils, CausalSelfAttention, EnDecoder
 
 
 
@@ -326,7 +326,28 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    params = {
+        "token_dim": d_model,
+        "n_heads": num_heads,
+        "d_ff": d_ff,
+        "seq_length": max_seq_len,
+        "theta": theta,
+        "device": "cpu",
+    }
+    block = EnDecoder(**params)
+    block.load_state_dict({
+        "attention.Q.layerAAA": weights["attn.q_proj.weight"].T,
+        "attention.K.layerAAA": weights["attn.k_proj.weight"].T,
+        "attention.V.layerAAA": weights["attn.v_proj.weight"].T,
+        "attention.up_proj.layerAAA": weights["attn.output_proj.weight"].T,
+        "norm1.gamma": weights["ln1.weight"],
+        "norm2.gamma": weights["ln2.weight"],
+        "mlp.w1.layerAAA": weights["ffn.w1.weight"].T,
+        "mlp.w2.layerAAA": weights["ffn.w2.weight"].T,
+        "mlp.w3.layerAAA": weights["ffn.w3.weight"].T,
+
+    })
+    return block(x=in_features)
 
 
 def run_transformer_lm(
