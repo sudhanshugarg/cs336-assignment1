@@ -37,6 +37,18 @@ EVAL
 eval: sample from logits and take next token [DONE]
 """
 class Utils():
+    _dtype_map = {
+        "float16": torch.float16,
+        "float32": torch.float32,
+        "float64": torch.float64,
+        "bfloat16": torch.bfloat16,
+        "int8": torch.int8,
+        "int16": torch.int16,
+        "int32": torch.int32,
+        "int64": torch.int64,
+        "bool": torch.bool,
+    }
+
     @staticmethod
     def stable_softmax(x: torch.Tensor, dimension: int=-1) -> torch.Tensor:
         max_logit = torch.max(x, dim=dimension, keepdim=True).values
@@ -44,14 +56,22 @@ class Utils():
         sum = torch.sum(x, dim=dimension, keepdim=True)
         return x / sum
 
+    @staticmethod
+    def get_dtype(type: str | None = None):
+        if type is not None and type in Utils._dtype_map:
+            return Utils._dtype_map[type]
+        return None
+
+
 class EnDecoder(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
+        using_dtype = Utils.get_dtype(kwargs["dtype"])
         self.attention = CausalSelfAttention(**kwargs)
-        self.mlp = FFN(d_ff=kwargs["d_ff"], d_model=kwargs["token_dim"])
+        self.mlp = FFN(d_ff=kwargs["d_ff"], d_model=kwargs["token_dim"], dtype=using_dtype)
         self.device = kwargs["device"]
-        self.norm1 = RMSNorm(d_model=kwargs["token_dim"], device=self.device)
-        self.norm2 = RMSNorm(d_model=kwargs["token_dim"], device=self.device)
+        self.norm1 = RMSNorm(d_model=kwargs["token_dim"], device=self.device, dtype=using_dtype)
+        self.norm2 = RMSNorm(d_model=kwargs["token_dim"], device=self.device, dtype=using_dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         #PreLN norm residual
@@ -59,6 +79,7 @@ class EnDecoder(nn.Module):
         # x1 = self.ln(x1)
         # x1 = self.attention(x1, True)
         # x1 = x + x1
+        # print("in endecoder")
         seq = x.shape[-2]
         token_positions = torch.arange(seq, device=self.device)
         x = x + self.attention(self.norm1(x), token_positions=token_positions, use_upper_triangular=True)
@@ -85,17 +106,18 @@ class SiLU(nn.Module):
         return x * torch.sigmoid(x)
 
 class FFN(nn.Module):
-    def __init__(self, d_ff: int, d_model: int) -> None:
+    def __init__(self, d_ff: int, d_model: int, dtype=None) -> None:
         super().__init__()
         self.d_ff = d_ff
         self.d_model = d_model
-        self.w1 = Linear2(in_features=d_model, out_features=d_ff)
-        self.w2 = Linear2(in_features=d_ff, out_features=d_model)
-        self.w3 = Linear2(in_features=d_model, out_features=d_ff)
+        self.w1 = Linear2(in_features=d_model, out_features=d_ff, dtype=dtype)
+        self.w2 = Linear2(in_features=d_ff, out_features=d_model, dtype=dtype)
+        self.w3 = Linear2(in_features=d_model, out_features=d_ff, dtype=dtype)
         self.silu = SiLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == self.d_model
+        # print("in ffn")
         w1_x = self.w1(x) # ..., d_ff
         w1_x = self.silu(w1_x)
         w3_x = self.w3(x) # ..., d_ff
@@ -103,7 +125,7 @@ class FFN(nn.Module):
         return w2_x
 
 class Linear2(nn.Module):
-    def __init__(self, in_features: int, out_features: int, device = None, dtype = None) -> None:
+    def __init__(self, in_features: int, out_features: int, device=None, dtype=None) -> None:
         super().__init__()
         self.input_dim = in_features
         self.output_dim = out_features
@@ -142,6 +164,7 @@ class Linear(nn.Module):
         # b, seq, token_dim = x.shape
         return x @ self.layer
 
+@DeprecationWarning
 class MLP(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
@@ -192,20 +215,22 @@ class CausalSelfAttention(nn.Module):
         self.n_heads = kwargs["n_heads"]
         assert(self.n_heads > 0 and self.token_dim % self.n_heads == 0)
         self.head_dim = self.token_dim // self.n_heads
+        using_dtype = Utils.get_dtype(kwargs["dtype"])
 
-        self.Q = Linear2(self.token_dim, self.token_dim)
-        self.K = Linear2(self.token_dim, self.token_dim)
-        self.V = Linear2(self.token_dim, self.token_dim)
-        self.up_proj = Linear2(self.token_dim, self.token_dim)
+        self.Q = Linear2(self.token_dim, self.token_dim, dtype=using_dtype)
+        self.K = Linear2(self.token_dim, self.token_dim, dtype=using_dtype)
+        self.V = Linear2(self.token_dim, self.token_dim, dtype=using_dtype)
+        self.up_proj = Linear2(self.token_dim, self.token_dim, dtype=using_dtype)
 
-        max_seq_length = kwargs["seq_length"]
+        max_seq_length = kwargs["max_seq_length"]
         device = kwargs["device"]
         theta = float(kwargs.get("theta", 10000.0))
         self.rope = RotaryPositionalEmbedding(
             theta=theta,
             d_k=self.head_dim,
             max_seq_length=max_seq_length,
-            device=device)
+            device=device,
+            dtype=using_dtype)
 
     def _lower_triangular(self, n: int) -> torch.Tensor:
         rows = torch.arange(n).view(n, 1)
@@ -217,7 +242,7 @@ class CausalSelfAttention(nn.Module):
     @staticmethod
     def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         #q.shape = ..., b, n_heads, seq, head_dim
-        attention = q @ k.transpose(-2, -1) / math.sqrt(q.shape[-1]) #b, n_heads, seq, seq
+        attention = q @ k.transpose(-2, -1) / math.sqrt(float(q.shape[-1])) #b, n_heads, seq, seq
         # print("within scaled dot: ", attention.shape)
         if mask is not None:
             attention = attention.masked_fill(~mask, float("-inf"))
@@ -238,6 +263,7 @@ class CausalSelfAttention(nn.Module):
         if mask is not None:
             assert seq == mask.shape[-1]
 
+        # print("in selfattn")
         q = self.Q(x) #b, seq, token
         k = self.K(x) #b, seq, token
         v = self.V(x) #b, seq, token
@@ -290,14 +316,15 @@ class RMSNorm(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == self.d_model
+        # print("in rmsnorm")
         in_dtype = x.dtype
-        x = x.to(torch.float32)
+        x = x.to(torch.float32) #just because we are squaring, so keep additional precision.
         #what is rms norm
         denominator = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
         return ((x / denominator) * self.gamma).to(in_dtype)
 
 class RotaryPositionalEmbedding(nn.Module):
-    def __init__(self, theta: float, d_k: int, max_seq_length: int, device=None):
+    def __init__(self, theta: float, d_k: int, max_seq_length: int, device=None, dtype=None):
         super().__init__()
         assert d_k % 2 == 0
         self.d_k = d_k
@@ -307,10 +334,10 @@ class RotaryPositionalEmbedding(nn.Module):
         self.device = device
 
         # for pre-computing the angles for all positions
-        powers = -2.0 * torch.arange(self.d_k // 2, dtype=torch.float32, device=device) / self.d_k
+        powers = -2.0 * torch.arange(self.d_k // 2, dtype=dtype, device=device) / self.d_k
         thetas = torch.pow(theta, powers) #1xd/2
         # print(token_positions.unsqueeze(dim=-1).shape)
-        angles = torch.arange(max_seq_length, device=device, dtype=torch.float32).unsqueeze(dim=-1) * thetas[None, :] #[..., seq_len, d/2]
+        angles = torch.arange(max_seq_length, device=device, dtype=dtype).unsqueeze(dim=-1) * thetas[None, :] #[..., seq_len, d/2]
         # print("angles: ", angles.shape)
         cos = torch.cos(angles) #...,seq_len,d/2
         # print("cos_angles: ", cos_angles.shape)
@@ -424,16 +451,23 @@ class Transformer(nn.Module):
         self.vocab_size = kwargs.pop("vocab_size")
         self.token_dim = kwargs["token_dim"]
         self.endecoder_layers = kwargs.pop("endecoder_layers")
-        self.seq_length = kwargs["seq_length"]
         self.device = kwargs["device"]
+        using_dtype = Utils.get_dtype(kwargs["dtype"])
 
         self.tokenEmbeddings = TokenEmbedding(
             num_embeddings=self.vocab_size,
             embeddings_dim=self.token_dim,
-            device=self.device
+            device=self.device,
+            dtype=using_dtype
         )
-        self.ln = RMSNorm(d_model=self.token_dim, device=self.device)
-        self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
+        self.norm = RMSNorm(d_model=self.token_dim, device=self.device, dtype=using_dtype)
+        # self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
+        self.lm_head = Linear2(
+            in_features=self.token_dim,
+            out_features=self.vocab_size,
+            device=self.device,
+            dtype=using_dtype
+        )
 
         self.layers = nn.ModuleList()
         for _ in range(self.endecoder_layers):
@@ -466,14 +500,22 @@ class Transformer(nn.Module):
         y = self.tokenEmbeddings(x) #b, seq, token_dim
         # y = y + self.sinusoidalPositionalEmbeddings #seq, token_dim
 
+        # print("after token_embedding")
         for i in range(self.endecoder_layers):
             y = self.layers[i](y)
+            # print(f"after layer {i}")
+
 
         #need one more layernorm at the end. Each of the endecoder layers does its own pre-ln.
-        y = self.ln(y)
+        y = self.norm(y)
+        # print(f"after norm")
         #now, need to convert the output, back into tokens
-        output_token_logits = y @ self.tokenEmbeddings.mapping.T #b, seq, vocab_size
+        #TODO try weight tying
+        # output_token_logits = y @ self.tokenEmbeddings.mapping.T #b, seq, vocab_size
+        output_token_logits = self.lm_head(y)
+        # print(f"after lm_head")
         output_token_probs = Utils.stable_softmax(output_token_logits)
+        # print(f"after softmax")
 
         return output_token_logits, output_token_probs
 
@@ -484,14 +526,16 @@ torch.manual_seed(157)
 #     "vocab_size": 3,
 #     "token_dim": 64,
 #     "endecoder_layers": 2,
-#     "seq_length": 6,
+#     "max_seq_length": 6,
 #     "n_heads": 4,
 #     "d_ff": 4,
 #     "theta": 10000,
+#     "dtype": "float16",
 #     "device": "cpu",
 # }
 # t = Transformer(**params)
-# batch_size, seq_length, token_dim = 5, params["seq_length"], params["token_dim"]
+# batch_size, seq_length, token_dim = 5, 5, params["token_dim"]
+# assert seq_length <= params["max_seq_length"]
 # x = torch.randint(low=0, high=params["vocab_size"], size=(batch_size, seq_length))
 # logits, probs = t(x)
 # print(logits.shape)

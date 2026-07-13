@@ -10,7 +10,7 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from src.bpe_tokenizer import BPETokenizer
 from src.tokenizer import Tokenizer
-from src.transformer import Linear2, TokenEmbedding, RMSNorm, SiLU, FFN, RotaryPositionalEmbedding, Utils, CausalSelfAttention, EnDecoder
+from src.transformer import Linear2, TokenEmbedding, RMSNorm, SiLU, FFN, RotaryPositionalEmbedding, Utils, CausalSelfAttention, EnDecoder, Transformer
 
 
 
@@ -429,7 +429,42 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    params = {
+        "token_dim": d_model,
+        "n_heads": num_heads,
+        "d_ff": d_ff,
+        "max_seq_length": context_length,
+        "theta": rope_theta,
+        "vocab_size": vocab_size,
+        "endecoder_layers": num_layers,
+        "dtype": "float16",
+        "device": "cpu",
+    }
+    t = Transformer(**params)
+    weight_names = {}
+    for i in range(num_layers):
+        endecoder_layer_weights = {
+            f"layers.{i}.attention.Q.layerAAA": weights[f"layers.{i}.attn.q_proj.weight"].T,
+            f"layers.{i}.attention.K.layerAAA": weights[f"layers.{i}.attn.k_proj.weight"].T,
+            f"layers.{i}.attention.V.layerAAA": weights[f"layers.{i}.attn.v_proj.weight"].T,
+            f"layers.{i}.attention.up_proj.layerAAA": weights[f"layers.{i}.attn.output_proj.weight"].T,
+            f"layers.{i}.norm1.gamma": weights[f"layers.{i}.ln1.weight"],
+            f"layers.{i}.norm2.gamma": weights[f"layers.{i}.ln2.weight"],
+            f"layers.{i}.mlp.w1.layerAAA": weights[f"layers.{i}.ffn.w1.weight"].T,
+            f"layers.{i}.mlp.w2.layerAAA": weights[f"layers.{i}.ffn.w2.weight"].T,
+            f"layers.{i}.mlp.w3.layerAAA": weights[f"layers.{i}.ffn.w3.weight"].T,
+        }
+        weight_names.update(endecoder_layer_weights)
+
+    weight_names.update({
+        "tokenEmbeddings.mapping": weights["token_embeddings.weight"],
+        "norm.gamma": weights["ln_final.weight"],
+        "lm_head.layerAAA": weights["lm_head.weight"].T,
+    })
+
+    t.load_state_dict(weight_names)
+    logits, probs = t(x=in_indices)
+    return logits
 
 
 def run_rmsnorm(
