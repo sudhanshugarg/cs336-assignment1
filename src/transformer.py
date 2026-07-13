@@ -434,6 +434,37 @@ class RotaryPositionalEmbedding(nn.Module):
 
         return roped
 
+class SinusoidalPositionalEmbedding(nn.Module):
+    def __init__(self, seq_length: int, token_dim: int):
+        self.seq_length = seq_length
+        self.token_dim = token_dim
+        self.positional_embedding = self._get_positional_embedding()
+
+    def _get_positional_embedding(self) -> torch.Tensor:
+        x_axis = torch.arange(self.seq_length, dtype=torch.int)
+        y_axis_even = torch.arange(0, self.token_dim, 2, dtype=torch.int)
+        y_axis_odd = torch.arange(1, self.token_dim, 2, dtype=torch.int)
+
+        float_type = torch.float16
+
+        seq_positions = torch.arange(self.seq_length)[:, None] #4, 1
+        powers = 10000 ** (torch.arange(0, self.token_dim, 2) / self.token_dim)
+        even_powers = torch.sin(powers)
+        odd_powers = torch.cos(powers)
+
+        positional_emb = torch.empty(self.seq_length, self.token_dim, dtype=float_type)
+        positional_emb[x_axis[:, None], y_axis_even[None, :]] = (seq_positions / even_powers).to(float_type)
+        positional_emb[x_axis[:, None], y_axis_odd[None, :]] = (seq_positions / odd_powers).to(float_type)
+        return positional_emb
+
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.shape[-1] == self.token_dim
+        assert x.shape[-2] == self.seq_length
+
+        return x + self.positional_embedding
+
+
 class TokenEmbedding(nn.Module):
     def __init__(self, num_embeddings: int, embeddings_dim: int, device=None, dtype=None):
         super().__init__()
@@ -444,6 +475,39 @@ class TokenEmbedding(nn.Module):
         # token_ids.shape = [..., d] where we have d integers
         return self.mapping[token_ids]
 
+"""
+FLOPS & Params
+b = batch, s = seq, t = token_dim, h = head_dim, n = num_heads
+self.tokenEmbeddings
+  - params: tv
+  - flops: 0
+EnDecoder:
+  - norm1
+    - params: t
+    - flops: 6 * bst, bsn*h = x.numel()
+  - attention
+    - params: 4 * t**2
+    - flops: 4 * bs*t^2 + 2 * bn*s*h*s + b*n*s^2 + 3bns^2 + 2 * bnh * s^2 + 6bnsh
+  - norm2
+    - params: t
+    - flops: 6 * bst, bsn*h = x.numel()
+  - mlp
+    - params: 3 * t * d_ff
+    - flops: 2*bst*d_ff + 2*bst*d_ff + 2*bst*d_ff + b*s*d_ff + 2*bs d_ff * t + 2bs * d_ff
+
+final_norm
+    - params: t
+    - flops: 6 * bst
+
+lm_head
+    - params: t * v
+    - flops: 2 * bstv + 3bsv
+
+
+Total:
+ params: layers * (2t + 4t^2 + 3t*d_ff) + t + 2tv
+ flops: layers * (18bst + 4bs t^2 + 4 bt s^2 + 4bn s^2 + 8 bst d_ff + 3 bs d_ff) + 6bst + 2bstv + 3bsv
+"""
 class Transformer(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
@@ -461,7 +525,6 @@ class Transformer(nn.Module):
             dtype=using_dtype
         )
         self.norm = RMSNorm(d_model=self.token_dim, device=self.device, dtype=using_dtype)
-        # self.sinusoidalPositionalEmbeddings = self._get_positional_embedding()
         self.lm_head = Linear2(
             in_features=self.token_dim,
             out_features=self.vocab_size,
@@ -472,24 +535,6 @@ class Transformer(nn.Module):
         self.layers = nn.ModuleList()
         for _ in range(self.endecoder_layers):
             self.layers.append(EnDecoder(**kwargs))
-
-    #TODO move into own sinusoidal class
-    def _get_positional_embedding(self) -> torch.Tensor:
-        x_axis = torch.arange(self.seq_length, dtype=torch.int)
-        y_axis_even = torch.arange(0, self.token_dim, 2, dtype=torch.int)
-        y_axis_odd = torch.arange(1, self.token_dim, 2, dtype=torch.int)
-
-        float_type = torch.float16
-
-        seq_positions = torch.arange(self.seq_length)[:, None] #4, 1
-        powers = 10000 ** (torch.arange(0, self.token_dim, 2) / self.token_dim)
-        even_powers = torch.sin(powers)
-        odd_powers = torch.cos(powers)
-
-        positional_emb = torch.empty(self.seq_length, self.token_dim, dtype=float_type)
-        positional_emb[x_axis[:, None], y_axis_even[None, :]] = (seq_positions / even_powers).to(float_type)
-        positional_emb[x_axis[:, None], y_axis_odd[None, :]] = (seq_positions / odd_powers).to(float_type)
-        return positional_emb
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # batch_size, seq_len = x.shape
@@ -519,7 +564,60 @@ class Transformer(nn.Module):
 
         return output_token_logits, output_token_probs
 
+def compute_params_and_flops(
+    layers: int,
+    b: int,
+    s: int,
+    t: int,
+    v: int,
+    d_ff: int,
+    n: int
+) -> tuple[int, int]:
+    """
+    Compute the parameter count and FLOP count for the given model dimensions.
 
+    Note:
+        h is included in the interface but does not appear in the supplied
+        formulas.
+    """
+    params = layers * (2 * t + 4 * t**2 + 3 * t * d_ff) + t + 2 * t * v
+
+    flops = (
+        layers
+        * (
+            18 * b * s * t
+            + 4 * b * s * t**2
+            + 4 * b * t * s**2
+            + 4 * b * n * s**2
+            + 8 * b * s * t * d_ff
+            + 3 * b * s * d_ff
+        )
+        + 6 * b * s * t
+        + 2 * b * s * t * v
+        + 3 * b * s * v
+    )
+
+    return params, flops
+
+params, flops = compute_params_and_flops(
+    layers=48,
+    b=1,
+    s=1024,
+    t=1600,
+    v=50_257,
+    d_ff=4288,
+    n=25
+)
+"""
+vocab_size:  50,257
+context_length:  1,024
+num_layers:  48
+d_model:  1,600
+num_heads:  25
+d_ff:  4,288 (the nearest multiple of 64 to 8/3 × 1, 600)
+"""
+print(f"Parameters: {params:,}")
+print(f"FLOPs:      {flops:,}")
 
 torch.manual_seed(157)
 # params = {
