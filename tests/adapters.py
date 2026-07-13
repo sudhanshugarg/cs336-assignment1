@@ -437,7 +437,7 @@ def run_transformer_lm(
         "theta": rope_theta,
         "vocab_size": vocab_size,
         "endecoder_layers": num_layers,
-        "dtype": "float16",
+        "dtype": "float32",
         "device": "cpu",
     }
     t = Transformer(**params)
