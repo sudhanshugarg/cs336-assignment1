@@ -11,6 +11,7 @@ from torch import Tensor
 from src.bpe_tokenizer import BPETokenizer
 from src.tokenizer import Tokenizer
 from src.transformer import Linear2, TokenEmbedding, RMSNorm, SiLU, FFN, RotaryPositionalEmbedding, Utils, CausalSelfAttention, EnDecoder, Transformer
+from src.train import TransformerCrossEntropyLoss
 
 
 
@@ -563,7 +564,8 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    lossFn = TransformerCrossEntropyLoss()
+    return lossFn(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:

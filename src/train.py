@@ -1,13 +1,15 @@
+import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from transformer import Transformer
-from tokenizer_v1 import Tokenizer_V1
-from dataset import TextFileReader
 import wandb
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import os
+
+from src.transformer import Utils
+from src.transformer import Transformer
+from src.tokenizer_v1 import Tokenizer_V1
+from src.dataset import TextFileReader
 
 PST = ZoneInfo("America/Los_Angeles")
 seq_length = 128
@@ -21,6 +23,35 @@ params = {
     "seq_length": seq_length
 }
 wandb_log = True
+
+class TransformerCrossEntropyLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        #preds.shape = [batch, seq_length, vocab_size]
+        #labels.shape = [batch, seq_length]
+
+        # logits = logits.reshape(-1, logits.shape[-1])
+        # labels = labels.reshape(-1)
+
+        #lets make sure issues due to large or tiny logits is resolved.
+        max_logits_per_row = torch.max(logits, dim=-1, keepdim=True).values
+
+        # print("logits.shape: ", logits)
+        # print("labels.shape: ", labels)
+        # print("max logits: ", max_logits_per_row)
+
+        log_logits_exp_sum = torch.log(torch.sum(torch.exp(logits - max_logits_per_row), dim=-1, keepdim=True))
+        # print(log_logits_exp_sum)
+
+        # relevant_label_logits = logits[torch.arange(logits.shape[-2]), labels]
+        logits = logits.reshape(-1, logits.shape[-1]) # n x d
+        labels = labels.reshape(-1) #n x 1
+        relevant_label_logits = logits[torch.arange(logits.shape[0]), labels]
+        relevant_label_logits = relevant_label_logits.reshape(max_logits_per_row.shape)
+        # print("relevant_label_logits: ", relevant_label_logits)
+        return torch.mean(max_logits_per_row + log_logits_exp_sum - relevant_label_logits)
 
 
 def get_tensor(tokenizer: Tokenizer_V1, x: list[str]) -> torch.Tensor:
@@ -156,5 +187,6 @@ def eval_model(model: nn.Module):
             print(tokenizer.tokenMapInt[next_token_int], end="")
     print()
 
-ckpt_path = train(3000)
-eval(model_path=ckpt_path)
+if __name__ == "__main__":
+    ckpt_path = train(3000)
+    eval(model_path=ckpt_path)

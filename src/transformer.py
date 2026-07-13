@@ -616,15 +616,15 @@ d_model:  1,600
 num_heads:  25
 d_ff:  4,288 (the nearest multiple of 64 to 8/3 × 1, 600)
 """
-print(f"Parameters: {params:,}")
-print(f"FLOPs:      {flops:,}")
+# print(f"Parameters: {params:,}")
+# print(f"FLOPs:      {flops:,}")
 
 torch.manual_seed(157)
 # params = {
 #     "vocab_size": 3,
 #     "token_dim": 64,
 #     "endecoder_layers": 2,
-#     "max_seq_length": 6,
+#     "max_seq_length": 16,
 #     "n_heads": 4,
 #     "d_ff": 4,
 #     "theta": 10000,
@@ -632,7 +632,7 @@ torch.manual_seed(157)
 #     "device": "cpu",
 # }
 # t = Transformer(**params)
-# batch_size, seq_length, token_dim = 5, 5, params["token_dim"]
+# batch_size, seq_length, token_dim = 5, 7, params["token_dim"]
 # assert seq_length <= params["max_seq_length"]
 # x = torch.randint(low=0, high=params["vocab_size"], size=(batch_size, seq_length))
 # logits, probs = t(x)
