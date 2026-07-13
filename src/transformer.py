@@ -142,7 +142,6 @@ class Linear(nn.Module):
         # b, seq, token_dim = x.shape
         return x @ self.layer
 
-
 class MLP(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
@@ -201,10 +200,14 @@ class CausalSelfAttention(nn.Module):
 
         max_seq_length = kwargs["seq_length"]
         device = kwargs["device"]
-        theta = float(kwargs.get("theta", 100.0))
-        self.rope = RotaryPositionalEmbedding(theta=theta, d_k=self.token_dim, max_seq_length=max_seq_length, device=device)
+        theta = float(kwargs.get("theta", 10000.0))
+        self.rope = RotaryPositionalEmbedding(
+            theta=theta,
+            d_k=self.head_dim,
+            max_seq_length=max_seq_length,
+            device=device)
 
-    def _upper_triangular(self, n: int) -> torch.Tensor:
+    def _lower_triangular(self, n: int) -> torch.Tensor:
         rows = torch.arange(n).view(n, 1)
         cols = torch.arange(n).view(-1, n)
         # we want 1s to represent the values to keep, and 0s to represent
@@ -224,40 +227,12 @@ class CausalSelfAttention(nn.Module):
 
         return result
 
-    def forward2(self,
-                x: torch.Tensor,
-                token_positions: torch.Tensor | None = None,
-                mask: torch.Tensor | None = None,
-                use_upper_triangular: bool = False) -> torch.Tensor:
-        b, seq, tok = x.shape
-        assert(tok == self.token_dim)
-
-        # token_positions = torch.arange(seq)
-
-        q = self.Q(x) #b, seq, tok_dim
-        # if token_positions is not None:
-        #     q = self.rope(q, token_positions)
-        q = q.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
-        k = self.K(x) #b, seq, tok_dim
-        # if token_positions is not None:
-        #     k = self.rope(k, token_positions)
-        k = k.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
-        v = self.V(x)
-        v = v.reshape(b, seq, self.n_heads, self.head_dim).transpose(1, 2) #b, n_heads, seq, head_dim
-
-        if mask is None and use_upper_triangular:
-            mask = self._upper_triangular(seq)
-        scaled_dot_prod_attn = CausalSelfAttention.scaled_dot_product_attention(q, k, v, mask)
-        result = scaled_dot_prod_attn.transpose(1, 2).reshape(b, seq, self.token_dim)
-        return self.up_proj(result)
-
-
     def forward(self,
                 x: torch.Tensor,
                 token_positions: torch.Tensor | None = None,
                 mask: torch.Tensor | None = None,
                 use_upper_triangular: bool = False) -> torch.Tensor:
-        _, seq, _ = x.shape
+        seq = x.shape[-2]
         if token_positions is not None:
             assert seq == token_positions.shape[-1]
         if mask is not None:
@@ -279,7 +254,7 @@ class CausalSelfAttention(nn.Module):
         # print("q,k,v.shape (after reshape): ", q.shape, k.shape, v.shape)
 
         if mask is None and use_upper_triangular:
-            mask = self._upper_triangular(seq)
+            mask = self._lower_triangular(seq)
         attention = CausalSelfAttention.scaled_dot_product_attention(q, k, v, mask)
         # print("scaled dot product attention shape: ", attention.shape)
         attention = attention.transpose(-2, -3)
@@ -407,7 +382,7 @@ class RotaryPositionalEmbedding(nn.Module):
         #output is the same shape as input, i.e. x.shape
 
         seq_length, token_dim = x.shape[-2:]
-        assert token_dim == self.d_k
+        assert token_dim == self.d_k, f"token_dim = {token_dim}, self.d_k = {self.d_k}"
         assert seq_length == token_positions.shape[-1]
         assert x.device == self.cos_angles.device
 
@@ -432,7 +407,6 @@ class RotaryPositionalEmbedding(nn.Module):
 
         return roped
 
-
 class TokenEmbedding(nn.Module):
     def __init__(self, num_embeddings: int, embeddings_dim: int, device=None, dtype=None):
         super().__init__()
@@ -442,7 +416,6 @@ class TokenEmbedding(nn.Module):
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
         # token_ids.shape = [..., d] where we have d integers
         return self.mapping[token_ids]
-
 
 class Transformer(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:

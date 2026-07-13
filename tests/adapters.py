@@ -229,7 +229,7 @@ def run_multihead_self_attention_with_rope(
         "V.layerAAA": v_proj_weight.T,
         "up_proj.layerAAA": o_proj_weight.T,
     })
-    return attention(x=in_features, token_positions=token_positions)
+    return attention(x=in_features, token_positions=token_positions, use_upper_triangular=True)
 
 
 
