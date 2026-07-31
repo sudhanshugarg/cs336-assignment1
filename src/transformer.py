@@ -80,9 +80,9 @@ class EnDecoder(nn.Module):
         # x1 = self.attention(x1, True)
         # x1 = x + x1
         # print("in endecoder")
-        seq = x.shape[-2]
-        token_positions = torch.arange(seq, device=self.device)
-        x = x + self.attention(self.norm1(x), token_positions=token_positions, use_upper_triangular=True)
+        # token_dim = x.shape[-1]
+        # token_positions = torch.arange(token_dim, device=self.device)
+        x = x + self.attention(self.norm1(x), token_positions=None, use_upper_triangular=True)
 
         # x2 = x1.clone()
         # x2 = self.ln(x2)
@@ -213,6 +213,7 @@ class CausalSelfAttention(nn.Module):
         """
         self.token_dim = kwargs["token_dim"]
         self.n_heads = kwargs["n_heads"]
+        self.device = kwargs["device"]
         assert(self.n_heads > 0 and self.token_dim % self.n_heads == 0)
         self.head_dim = self.token_dim // self.n_heads
         using_dtype = Utils.get_dtype(kwargs["dtype"])
@@ -257,8 +258,13 @@ class CausalSelfAttention(nn.Module):
                 token_positions: torch.Tensor | None = None,
                 mask: torch.Tensor | None = None,
                 use_upper_triangular: bool = False) -> torch.Tensor:
+        # print("attention x.shape: ", x.shape)
         seq = x.shape[-2]
+        if token_positions is None:
+            token_positions = torch.arange(seq, device=self.device)
+
         if token_positions is not None:
+            # print("attention token_positions.shape: ", token_positions.shape)
             assert seq == token_positions.shape[-1]
         if mask is not None:
             assert seq == mask.shape[-1]
@@ -334,10 +340,12 @@ class RotaryPositionalEmbedding(nn.Module):
         self.device = device
 
         # for pre-computing the angles for all positions
-        powers = -2.0 * torch.arange(self.d_k // 2, dtype=dtype, device=device) / self.d_k
-        thetas = torch.pow(theta, powers) #1xd/2
+        # powers = -2.0 * torch.arange(self.d_k // 2, dtype=dtype, device=device) / self.d_k
+        thetas = 10000 ** (-torch.arange(0, self.d_k, 2, dtype=dtype, device=device) / self.d_k)
+        # thetas = torch.pow(theta, powers) #1xd/2
         # print(token_positions.unsqueeze(dim=-1).shape)
-        angles = torch.arange(max_seq_length, device=device, dtype=dtype).unsqueeze(dim=-1) * thetas[None, :] #[..., seq_len, d/2]
+        # angles = torch.arange(max_seq_length, device=device, dtype=dtype)[:, None] * thetas[None, :] #[..., seq_len, d/2]
+        angles = torch.arange(max_seq_length, dtype=dtype, device=device).reshape(-1, 1) * thetas.reshape(-1, thetas.shape[0])  #[..., seq_len, d/2]
         # print("angles: ", angles.shape)
         cos = torch.cos(angles) #...,seq_len,d/2
         # print("cos_angles: ", cos_angles.shape)
@@ -347,6 +355,7 @@ class RotaryPositionalEmbedding(nn.Module):
         # self.register_buffer("sin_angles", sin)
         self.cos_angles = cos
         self.sin_angles = sin
+        print("init self.cos_angles.shape: ", self.cos_angles.shape)
 
     def _using_block_diag(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         seq_length, token_dim = x.shape[-2:]
@@ -407,6 +416,10 @@ class RotaryPositionalEmbedding(nn.Module):
         #token_positions is [..., seq_len] - it is the position of the sequence
         #we cannot assume that the sequence positions are 0.. seq_length-1, they are given (i.e. m is given for each sequence)
         #output is the same shape as input, i.e. x.shape
+        # print("input.shape: ", x.shape)
+        # print("token_positions.shape: ", token_positions.shape)
+        # print("token_positions: ", token_positions)
+
 
         seq_length, token_dim = x.shape[-2:]
         assert token_dim == self.d_k, f"token_dim = {token_dim}, self.d_k = {self.d_k}"
@@ -416,7 +429,7 @@ class RotaryPositionalEmbedding(nn.Module):
         token_positions = token_positions.to(device=x.device, dtype=torch.long)
 
         # print("x: ", x.shape)
-        # print("thetas: ", thetas.shape)
+        # print("cos_angles.shape: ", self.cos_angles.shape)
         cos_angles = self.cos_angles[token_positions].to(x.dtype) #...,seq_len,d/2
         sin_angles = self.sin_angles[token_positions].to(x.dtype) #...,seq_len,d/2
 
@@ -435,35 +448,39 @@ class RotaryPositionalEmbedding(nn.Module):
         return roped
 
 class SinusoidalPositionalEmbedding(nn.Module):
-    def __init__(self, seq_length: int, token_dim: int):
-        self.seq_length = seq_length
+    def __init__(self, max_seq_length: int, token_dim: int):
+        super().__init__()
+        self.max_seq_length = max_seq_length
         self.token_dim = token_dim
         self.positional_embedding = self._get_positional_embedding()
 
     def _get_positional_embedding(self) -> torch.Tensor:
-        x_axis = torch.arange(self.seq_length, dtype=torch.int)
-        y_axis_even = torch.arange(0, self.token_dim, 2, dtype=torch.int)
-        y_axis_odd = torch.arange(1, self.token_dim, 2, dtype=torch.int)
+        # x_axis = torch.arange(self.max_seq_length, dtype=torch.int)
+        # y_axis_even = torch.arange(0, self.token_dim, 2, dtype=torch.int)
+        # y_axis_odd = torch.arange(1, self.token_dim, 2, dtype=torch.int)
 
-        float_type = torch.float16
+        float_type = torch.float32
 
-        seq_positions = torch.arange(self.seq_length)[:, None] #4, 1
-        powers = 10000 ** (torch.arange(0, self.token_dim, 2) / self.token_dim)
+        seq_positions = torch.arange(self.max_seq_length, dtype=float_type)[:, None] #[seq, 1]
+        powers = 10000 ** (torch.arange(0, self.token_dim, 2) / self.token_dim)[None, :] #[1, token_dim//2]
+        powers = seq_positions / powers #[seq, token_dim//2]
         even_powers = torch.sin(powers)
         odd_powers = torch.cos(powers)
 
-        positional_emb = torch.empty(self.seq_length, self.token_dim, dtype=float_type)
-        positional_emb[x_axis[:, None], y_axis_even[None, :]] = (seq_positions / even_powers).to(float_type)
-        positional_emb[x_axis[:, None], y_axis_odd[None, :]] = (seq_positions / odd_powers).to(float_type)
+        positional_emb = torch.empty(self.max_seq_length, self.token_dim, dtype=float_type)
+        # positional_emb[x_axis[:, None], y_axis_even[None, :]] = even_powers.to(float_type)
+        # positional_emb[x_axis[:, None], y_axis_odd[None, :]] = odd_powers.to(float_type)
+        positional_emb[:, 0:self.token_dim:2] = even_powers
+        positional_emb[:, 1:self.token_dim:2] = odd_powers
         return positional_emb
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == self.token_dim
-        assert x.shape[-2] == self.seq_length
+        input_seq_length = x.shape[-2]
+        assert input_seq_length <= self.max_seq_length
 
-        return x + self.positional_embedding
-
+        return x + self.positional_embedding[:input_seq_length, :]
 
 class TokenEmbedding(nn.Module):
     def __init__(self, num_embeddings: int, embeddings_dim: int, device=None, dtype=None):
@@ -619,7 +636,7 @@ d_ff:  4,288 (the nearest multiple of 64 to 8/3 × 1, 600)
 # print(f"Parameters: {params:,}")
 # print(f"FLOPs:      {flops:,}")
 
-torch.manual_seed(157)
+# torch.manual_seed(157)
 # params = {
 #     "vocab_size": 3,
 #     "token_dim": 64,
@@ -641,8 +658,8 @@ torch.manual_seed(157)
 
 # input_x = torch.rand([batch_size, seq_length, token_dim])
 # print("x: ", input_x.shape)
-# rope = RotaryPositionalEmbedding(theta = 10.0, d_k=8, max_seq_length=6)
-# token_positions = torch.randint_like(torch.empty([batch_size, seq_length]), low=0, high=10)
+# rope = RotaryPositionalEmbedding(theta = params["theta"], d_k=token_dim, max_seq_length=seq_length)
+# token_positions = torch.randint_like(torch.empty([batch_size, seq_length]), low=0, high=seq_length)
 # print("token_positions: ", token_positions.shape)
 
 # rope(input_x, token_positions)

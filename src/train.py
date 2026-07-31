@@ -9,19 +9,26 @@ from zoneinfo import ZoneInfo
 from src.transformer import Utils
 from src.transformer import Transformer
 from src.tokenizer_v1 import Tokenizer_V1
+from src.tokenizer import Tokenizer
 from src.dataset import TextFileReader
 
 PST = ZoneInfo("America/Los_Angeles")
-seq_length = 128
+max_seq_length = 128
 params = {
     "vocab_size": 10000,
-    "token_dim": 384,
-    "endecoder_layers": 4,
+    "token_dim": 64,
+    "endecoder_layers": 2,
+    "max_seq_length": max_seq_length,
     "n_heads": 4,
-    "mlp_hidden_layer_dim": 128,
-    "mlp_hidden_layers": 2,
-    "seq_length": seq_length
+    "d_ff": 4,
+    "theta": 10000,
+    "dtype": "float16",
+    "device": "cpu",
 }
+seq_length = 25
+assert seq_length <= max_seq_length
+
+
 wandb_log = True
 
 class TransformerCrossEntropyLoss(nn.Module):
