@@ -67,9 +67,9 @@ class EnDecoder(nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__()
         using_dtype = Utils.get_dtype(kwargs["dtype"])
+        self.device = torch.device(kwargs["device"])
         self.attention = CausalSelfAttention(**kwargs)
-        self.mlp = FFN(d_ff=kwargs["d_ff"], d_model=kwargs["token_dim"], dtype=using_dtype)
-        self.device = kwargs["device"]
+        self.mlp = FFN(d_ff=kwargs["d_ff"], d_model=kwargs["token_dim"], dtype=using_dtype, device=self.device)
         self.norm1 = RMSNorm(d_model=kwargs["token_dim"], device=self.device, dtype=using_dtype)
         self.norm2 = RMSNorm(d_model=kwargs["token_dim"], device=self.device, dtype=using_dtype)
 
@@ -106,13 +106,13 @@ class SiLU(nn.Module):
         return x * torch.sigmoid(x)
 
 class FFN(nn.Module):
-    def __init__(self, d_ff: int, d_model: int, dtype=None) -> None:
+    def __init__(self, d_ff: int, d_model: int, dtype=None, device=None) -> None:
         super().__init__()
         self.d_ff = d_ff
         self.d_model = d_model
-        self.w1 = Linear2(in_features=d_model, out_features=d_ff, dtype=dtype)
-        self.w2 = Linear2(in_features=d_ff, out_features=d_model, dtype=dtype)
-        self.w3 = Linear2(in_features=d_model, out_features=d_ff, dtype=dtype)
+        self.w1 = Linear2(in_features=d_model, out_features=d_ff, dtype=dtype, device=device)
+        self.w2 = Linear2(in_features=d_ff, out_features=d_model, dtype=dtype, device=device)
+        self.w3 = Linear2(in_features=d_model, out_features=d_ff, dtype=dtype, device=device)
         self.silu = SiLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -213,24 +213,23 @@ class CausalSelfAttention(nn.Module):
         """
         self.token_dim = kwargs["token_dim"]
         self.n_heads = kwargs["n_heads"]
-        self.device = kwargs["device"]
+        self.device = torch.device(kwargs["device"])
         assert(self.n_heads > 0 and self.token_dim % self.n_heads == 0)
         self.head_dim = self.token_dim // self.n_heads
         using_dtype = Utils.get_dtype(kwargs["dtype"])
 
-        self.Q = Linear2(self.token_dim, self.token_dim, dtype=using_dtype)
-        self.K = Linear2(self.token_dim, self.token_dim, dtype=using_dtype)
-        self.V = Linear2(self.token_dim, self.token_dim, dtype=using_dtype)
-        self.up_proj = Linear2(self.token_dim, self.token_dim, dtype=using_dtype)
+        self.Q = Linear2(self.token_dim, self.token_dim, dtype=using_dtype, device=self.device)
+        self.K = Linear2(self.token_dim, self.token_dim, dtype=using_dtype, device=self.device)
+        self.V = Linear2(self.token_dim, self.token_dim, dtype=using_dtype, device=self.device)
+        self.up_proj = Linear2(self.token_dim, self.token_dim, dtype=using_dtype, device=self.device)
 
         max_seq_length = kwargs["max_seq_length"]
-        device = kwargs["device"]
         theta = float(kwargs.get("theta", 10000.0))
         self.rope = RotaryPositionalEmbedding(
             theta=theta,
             d_k=self.head_dim,
             max_seq_length=max_seq_length,
-            device=device,
+            device=self.device,
             dtype=using_dtype)
 
     def _lower_triangular(self, n: int) -> torch.Tensor:
@@ -286,7 +285,7 @@ class CausalSelfAttention(nn.Module):
         # print("q,k,v.shape (after reshape): ", q.shape, k.shape, v.shape)
 
         if mask is None and use_upper_triangular:
-            mask = self._lower_triangular(seq)
+            mask = self._lower_triangular(seq).to(self.device)
         attention = CausalSelfAttention.scaled_dot_product_attention(q, k, v, mask)
         # print("scaled dot product attention shape: ", attention.shape)
         attention = attention.transpose(-2, -3)
@@ -532,7 +531,7 @@ class Transformer(nn.Module):
         self.vocab_size = kwargs.pop("vocab_size")
         self.token_dim = kwargs["token_dim"]
         self.endecoder_layers = kwargs.pop("endecoder_layers")
-        self.device = kwargs["device"]
+        self.device = torch.device(kwargs["device"])
         using_dtype = Utils.get_dtype(kwargs["dtype"])
 
         self.tokenEmbeddings = TokenEmbedding(

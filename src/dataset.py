@@ -1,15 +1,15 @@
 import torch
 from torch.utils.data import Dataset
-from src.tokenizer_v1 import Tokenizer_V1
+from src.tokenizer import Tokenizer
 
 class TextFileReader(Dataset):
-    def __init__(self, path: str, tokenizer: Tokenizer_V1, seq_length: int = 32):
+    def __init__(self, path: str, tokenizer: Tokenizer, seq_length: int):
         self.seq_length = seq_length
         self.tokenizer = tokenizer
 
         with open(path, "r") as f:
             self.raw_data = f.read()
-            self.tokens, self.token_ints = self.tokenizer.tokenize([self.raw_data], seq_length=seq_length)[0]
+            self.token_ints = self.tokenizer.encode(self.raw_data)
             f.close()
         self.n = len(self.token_ints)
 

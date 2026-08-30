@@ -161,11 +161,14 @@ class Tokenizer():
 #                 special_tokens=["<|endoftext|>"]
 #             )
 
-# with open("src/resources/openwebtext_sample_20.bin", "r") as f:
+# with open("src/resources/example.txt", "r") as f:
 #     data = f.read()
 #     encoded = tokenizer.encode(data)
 #     print(len(encoded), len(data.encode("utf-8")))
-
+#     take = encoded[:20]
+#     for t in take:
+#         print(tokenizer.tokenIntMap[t], end="")
+#     print(tokenizer.decode(take))
 
 # examples = [
 #     "thesemondaytuesdayand<|hey|>what<|hey|><|hey|>no oneis there",
