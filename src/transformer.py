@@ -1,9 +1,10 @@
-from typing import Any
+from typing import Any, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.init as init
 import math
+import torch.nn.functional as F
 
 """
 input is [batch, seq_length] -> of integers (tokenIds) [TODO fix the current implementation of tokenizer]
@@ -50,11 +51,62 @@ class Utils():
     }
 
     @staticmethod
-    def stable_softmax(x: torch.Tensor, dimension: int=-1) -> torch.Tensor:
+    def stable_softmax(x: torch.Tensor, dimension: int=-1, top_k: Optional[int]=None) -> torch.Tensor:
         max_logit = torch.max(x, dim=dimension, keepdim=True).values
         x = torch.exp(x - max_logit) #b, n_heads, seq, seq
         sum = torch.sum(x, dim=dimension, keepdim=True)
-        return x / sum
+        result = x / sum
+        return result
+
+    @staticmethod
+    def stable_softmax2(x: torch.Tensor, dimension: int=-1, top_k: Optional[int]=None) -> torch.Tensor:
+        # basically i only want the top k values, and set the rest to -inf before applying exp.
+        # max logit will stay unchanged in anycase.
+
+        # print("input x first 7=", x[..., :7])
+        # max_logit = torch.max(x, dim=dimension, keepdim=True).values
+        # print("x.shape = ", x.shape, ", max_logit.shape = ", max_logit.shape)
+        # print("max_logit = ", max_logit)
+
+        if top_k:
+            top_k_indices = torch.argsort(x, descending=True, dim=dimension) #b, seq, top_k
+            # top_k_indices = torch.arange(x.shape[-1])
+            # top_k_indices = torch.arange(
+            #     x.shape[-1],
+            #     device=x.device,
+            #     dtype=torch.long,
+            # ).expand(*x.shape[:-1], -1)
+
+            top_k_indices_chosen = top_k_indices[..., :top_k]
+
+            #lets create a mask in the same shape as x
+            mask = torch.ones(x.shape, device=x.device, dtype=torch.bool)
+            # mask[top_k_indices_chosen] = False
+            mask.scatter_(-1, top_k_indices_chosen, False)
+            # print("top_k_indices = ", top_k_indices_chosen, ", shape = ", top_k_indices_chosen.shape)
+            x = x.masked_fill(mask, float("-inf"))
+            # print("mask first 7: ", mask[..., :7])
+            # print("x first 7: ", x[..., :7])
+
+            # set the rest to -inf
+
+        # x = torch.exp(x - max_logit) #b, n_heads, seq, seq
+        # print("x7 =", x[..., :7])
+        # sum = torch.sum(x, dim=dimension, keepdim=True)
+        # result = x / sum
+        # print("result.shape =", result.shape)
+        result = F.softmax(x, dim=dimension)
+        # print("result7 =", result[..., :7])
+        
+        if top_k:
+            # result2 = torch.argsort(result, descending=True, dim=dimension) #3,6,32000
+            # print("result2 = ", result2[..., :7]) #3,6,7
+            # print(result[result2[..., :7]].shape)
+            # print(result[result2[..., :7]])
+            pass
+
+        return result
+
 
     @staticmethod
     def get_dtype(type: str | None = None):
@@ -554,6 +606,7 @@ class Transformer(nn.Module):
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # batch_size, seq_len = x.shape
+        # print("transformer: x.shape =", x.shape)
 
         #ignore the pad tokens.
         #TODO create the input mask
@@ -574,8 +627,8 @@ class Transformer(nn.Module):
         #TODO try weight tying
         # output_token_logits = y @ self.tokenEmbeddings.mapping.T #b, seq, vocab_size
         output_token_logits = self.lm_head(y)
-        # print(f"after lm_head")
-        output_token_probs = Utils.stable_softmax(output_token_logits)
+        # print(f"after lm_head, output_token_logits.shape = ", output_token_logits.shape)
+        output_token_probs = Utils.stable_softmax2(output_token_logits, top_k=None)
         # print(f"after softmax")
 
         return output_token_logits, output_token_probs

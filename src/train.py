@@ -12,52 +12,25 @@ from src.tokenizer_v1 import Tokenizer_V1
 from src.tokenizer import Tokenizer
 from src.dataset import TextFileReader
 from src.transformer import compute_params_and_flops
+from src.loss import TransformerCrossEntropyLoss, CrossEntropyFromProbabilities, CrossEntropyFromLogits
 
 PST = ZoneInfo("America/Los_Angeles")
 params = {
     "vocab_size": 32000,
-    "token_dim": 64,
+    "token_dim": 256,
     "endecoder_layers": 2,
-    "max_seq_length": 5000,
-    "n_heads": 4,
+    "max_seq_length": 1024,
+    "n_heads": 1,
     "d_ff": 4,
     "theta": 10000,
-    "dtype": "float16",
+    "dtype": "float32",
     "device": "mps",
-    "batch_size": 16
+    "batch_size": 32
 }
 tokenizer_file_path = f"src/resources/tinystories_vocab_{params['vocab_size']}_50.pkl"
 
-wandb_log = True
+wandb_log = False
 
-class TransformerCrossEntropyLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        #preds.shape = [batch, seq_length, vocab_size]
-        #labels.shape = [batch, seq_length]
-
-        # logits = logits.reshape(-1, logits.shape[-1])
-        # labels = labels.reshape(-1)
-
-        #lets make sure issues due to large or tiny logits is resolved.
-        max_logits_per_row = torch.max(logits, dim=-1, keepdim=True).values
-
-        # print("logits.shape: ", logits)
-        # print("labels.shape: ", labels)
-        # print("max logits: ", max_logits_per_row)
-
-        log_logits_exp_sum = torch.log(torch.sum(torch.exp(logits - max_logits_per_row), dim=-1, keepdim=True))
-        # print(log_logits_exp_sum)
-
-        # relevant_label_logits = logits[torch.arange(logits.shape[-2]), labels]
-        logits = logits.reshape(-1, logits.shape[-1]) # n x d
-        labels = labels.reshape(-1) #n x 1
-        relevant_label_logits = logits[torch.arange(logits.shape[0]), labels]
-        relevant_label_logits = relevant_label_logits.reshape(max_logits_per_row.shape)
-        # print("relevant_label_logits: ", relevant_label_logits)
-        return torch.mean(max_logits_per_row + log_logits_exp_sum - relevant_label_logits)
 
 
 def get_tensor(tokenizer: Tokenizer_V1, x: list[str]) -> torch.Tensor:
@@ -68,28 +41,28 @@ def get_tensor(tokenizer: Tokenizer_V1, x: list[str]) -> torch.Tensor:
     return torch.tensor(token_ints)
 
 
-def train_step(it: int, model: nn.Module, x: torch.Tensor, y: torch.Tensor, seq_length: int, device = None, print_every: int = 10):
+def train_step(
+        it: int, 
+        model: nn.Module, 
+        lossFn: nn.Module, 
+        x: torch.Tensor, 
+        y: torch.Tensor, 
+        seq_length: int, 
+        device=None, 
+        print_every: int = 10
+    ):
+
     model.train()
     logits, probs = model(x) #b, seq, vocab_size
-    #each of the 3 indexes are broadcast into y.shape
-    #mask for y also has to be applied.
-    #we only take losses from y, for non-padded positions.
-    eps = 1e-8
+    top_k = 5
 
-    #y.shape = b, seq_length
-    print("y.shape = ", y.shape)
-    print("probs.shape = ", probs.shape)
-    print("logits.shape = ", logits.shape)
-    label_mask = ((y != Tokenizer_V1.padding_token_int) * 1).to(device)
-    # print(label_mask)
-    losses = probs[torch.arange(logits.shape[0])[:, None], torch.arange(logits.shape[1])[None, :], y].to(device)
-    # print(probs[:3, :4])
-    losses = -torch.log(losses + eps) * label_mask
-    print("sum loss = ", losses.sum())
-    loss = losses.sum() / (label_mask.sum() + eps)
+    top_k_probs = probs[:, :, :7]
+    loss, zeros = lossFn(probs, y)
 
     if it % print_every == 0:
-        print(f"{it}: loss = {loss.item()}")
+        print(f"{it}: loss = {loss.item()}, zeros = {zeros.item()}")
+        # print("x = ", x, ", y = ", y)
+        # print("top_k_probs =", top_k_probs)
         eval_model(model, seq_length=seq_length, device=device)
 
     if wandb_log:
@@ -97,10 +70,10 @@ def train_step(it: int, model: nn.Module, x: torch.Tensor, y: torch.Tensor, seq_
             "iter": it,
             "loss": loss.item()
         })
-    loss.backward()
+    return loss
 
 
-def train(max_steps: int, seq_length: int, device=None):
+def train(max_steps: int, seq_length: int, device=None, print_every: int = 10, checkpoint=None):
     assert seq_length <= params["max_seq_length"]
 
     if wandb_log:
@@ -110,14 +83,24 @@ def train(max_steps: int, seq_length: int, device=None):
 
     torch.manual_seed(157)
     model = Transformer(**params)
+    if checkpoint:
+        model.load_state_dict(checkpoint)
+
+    lossFn = CrossEntropyFromProbabilities(device=device)
     tokenizer = Tokenizer.from_files(
         vocab_filepath=tokenizer_file_path,
         merges_filepath=tokenizer_file_path,
         special_tokens=["<|endoftext|>"])
     # tokenizer.tokenize()
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-
+    # optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=3e-4,          # try 1e-4 or 5e-5 if unstable
+        betas=(0.9, 0.95),
+        eps=1e-8,
+        weight_decay=0.1,
+    )
     file_path = f"src/resources/input.txt"
 
     dataset = TextFileReader(file_path, seq_length=seq_length, tokenizer=tokenizer)
@@ -136,8 +119,11 @@ def train(max_steps: int, seq_length: int, device=None):
         # y = get_tensor(tokenizer, batch_y)
         optimizer.zero_grad(set_to_none=True)
         batch_x = batch_x.to(device)
+        # print("batch_x =", batch_x)
         batch_y = batch_y.to(device).long()
-        train_step(i, model, batch_x, batch_y, seq_length=seq_length, device=device, print_every=3)
+        # print("batch_y =", batch_y)
+        loss = train_step(i, model, lossFn, batch_x, batch_y, seq_length=seq_length, device=device, print_every=print_every)
+        loss.backward()
         optimizer.step()
 
     
@@ -158,6 +144,7 @@ def sample_probs(probs: torch.Tensor, device=None) -> torch.Tensor:
     #probs.shape = [b, seq_length, vocab_size]
     #b = 1
     cumprobs = torch.cumsum(probs[:, -1], dim=-1)
+    cumprobs[..., -1] = 1.0
     # print(probs[:, -1].shape)
     # print(cumprobs.shape)
     return bucketize(torch.rand(probs.shape[0], device=device), cumprobs)
@@ -220,7 +207,9 @@ if __name__ == "__main__":
         n=params["n_heads"]
     )
     print(f"for this training run, param_count = {param_count}, estimated flops per forward pass: {flops}")
-    seq_length = 8
+    seq_length = 6
     device = torch.device(params["device"])
-    ckpt_path = train(500, seq_length=seq_length, device=device)
+    checkpoint = torch.load("src/resources/1788191302-checkpoint.pt")
+    # checkpoint = None
+    ckpt_path = train(max_steps=50000, print_every=1000, seq_length=seq_length, device=device, checkpoint=checkpoint)
     eval(model_path=ckpt_path, seq_length=seq_length, device=device)
