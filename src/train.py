@@ -17,9 +17,9 @@ from src.loss import TransformerCrossEntropyLoss, CrossEntropyFromProbabilities,
 PST = ZoneInfo("America/Los_Angeles")
 params = {
     "vocab_size": 32000,
-    "token_dim": 256,
-    "endecoder_layers": 2,
-    "max_seq_length": 1024,
+    "token_dim": 768,
+    "endecoder_layers": 4,
+    "max_seq_length": 2048,
     "n_heads": 1,
     "d_ff": 4,
     "theta": 10000,
@@ -57,10 +57,10 @@ def train_step(
     top_k = 5
 
     top_k_probs = probs[:, :, :7]
-    loss, zeros = lossFn(probs, y)
+    loss = lossFn(logits, y)
 
     if it % print_every == 0:
-        print(f"{it}: loss = {loss.item()}, zeros = {zeros.item()}")
+        print(f"{it}: loss = {loss.item()}")
         # print("x = ", x, ", y = ", y)
         # print("top_k_probs =", top_k_probs)
         eval_model(model, seq_length=seq_length, device=device)
@@ -73,7 +73,14 @@ def train_step(
     return loss
 
 
-def train(max_steps: int, seq_length: int, device=None, print_every: int = 10, checkpoint=None):
+def train(
+        max_steps: int, 
+        seq_length: int, 
+        device=None, 
+        print_every: int = 10, 
+        save_every: int = 50, 
+        checkpoint=None
+    ):
     assert seq_length <= params["max_seq_length"]
 
     if wandb_log:
@@ -86,7 +93,8 @@ def train(max_steps: int, seq_length: int, device=None, print_every: int = 10, c
     if checkpoint:
         model.load_state_dict(checkpoint)
 
-    lossFn = CrossEntropyFromProbabilities(device=device)
+    # lossFn = CrossEntropyFromProbabilities(device=device)
+    lossFn = TransformerCrossEntropyLoss()
     tokenizer = Tokenizer.from_files(
         vocab_filepath=tokenizer_file_path,
         merges_filepath=tokenizer_file_path,
@@ -125,6 +133,11 @@ def train(max_steps: int, seq_length: int, device=None, print_every: int = 10, c
         loss = train_step(i, model, lossFn, batch_x, batch_y, seq_length=seq_length, device=device, print_every=print_every)
         loss.backward()
         optimizer.step()
+
+        if i % save_every == 0:
+            model_path = f"src/resources/{train_start_str}_{i}_checkpoint.pt"
+            torch.save(model.state_dict(), model_path)
+            print(f"saved checkpoint {model_path}")
 
     
     model_path = f"src/resources/{train_start_str}-checkpoint.pt"
@@ -180,7 +193,6 @@ def eval_model(model: nn.Module, seq_length: int, device=None):
     max_length = 50
     token_ints = tokenizer.encode(start)
 
-    print(start, end="")
     with torch.no_grad():
         for i in range(max_length):
             x = torch.tensor(token_ints[-seq_length:], device=device).unsqueeze(dim=0)
@@ -207,9 +219,9 @@ if __name__ == "__main__":
         n=params["n_heads"]
     )
     print(f"for this training run, param_count = {param_count}, estimated flops per forward pass: {flops}")
-    seq_length = 6
+    seq_length = 1024
     device = torch.device(params["device"])
-    checkpoint = torch.load("src/resources/1788191302-checkpoint.pt")
-    # checkpoint = None
-    ckpt_path = train(max_steps=50000, print_every=1000, seq_length=seq_length, device=device, checkpoint=checkpoint)
+    # checkpoint = torch.load("src/resources/1788436876-checkpoint.pt")
+    checkpoint = None
+    ckpt_path = train(max_steps=50000, print_every=10, save_every=100, seq_length=seq_length, device=device, checkpoint=checkpoint)
     eval(model_path=ckpt_path, seq_length=seq_length, device=device)

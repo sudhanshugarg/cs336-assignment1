@@ -12,6 +12,7 @@ from src.bpe_tokenizer import BPETokenizer
 from src.tokenizer import Tokenizer
 from src.transformer import Linear2, TokenEmbedding, RMSNorm, SiLU, FFN, RotaryPositionalEmbedding, Utils, CausalSelfAttention, EnDecoder, Transformer
 from src.train import TransformerCrossEntropyLoss
+from src.optim.adamw import AdamWCls
 
 
 
@@ -584,7 +585,7 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamWCls
 
 
 def run_get_lr_cosine_schedule(
